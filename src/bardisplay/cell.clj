@@ -35,6 +35,11 @@
   "The header blocks to the right of the track title, left to right."
   [:info :status :tempo :time])
 
+(def drop-order
+  "The header blocks left out, in this order, when a cell is too narrow
+  to show them all at a readable size. The badge and title always stay."
+  [:tempo :status :time :info])
+
 (def repaint-groups
   "Which snapshot keys each painted component depends on. The animation
   loop only repaints a component when one of its keys has changed."
@@ -68,18 +73,26 @@
         height-s      (theme/scale h)
         compact?      (< (/ (double w) height-s) (:compact-below metrics))
         design-w      (fn [k] (get-in metrics [k (if compact? :compact :full)]))
-        right         (filterv blocks header-order)
-        ;; Design units the header needs across: margins, gaps, the fixed blocks, and
-        ;; the title's share when it is shown. In a tall, narrow cell scaling by height
-        ;; alone would make the header wider than the cell, so the width can cap it.
-        fixed-du      (+ (* 2 (:margin metrics))
-                         (* (:gap metrics) (inc (count right)))
-                         (design-w :badge)
-                         (reduce + 0 (map design-w right)))
-        needed-du     (if (contains? blocks :track)
-                        (/ fixed-du (- 1.0 (:min-track-share metrics)))
-                        fixed-du)
-        s             (min height-s (/ (double w) needed-du))
+        ;; The scale at which the header, with these blocks right of the title, fits
+        ;; across the cell: margins, gaps, the fixed blocks, and the title's share when
+        ;; it is shown. Never larger than the scale the cell's height allows.
+        fit-s         (fn [right]
+                        (let [fixed-du  (+ (* 2 (:margin metrics))
+                                           (* (:gap metrics) (inc (count right)))
+                                           (design-w :badge)
+                                           (reduce + 0 (map design-w right)))
+                              needed-du (if (contains? blocks :track)
+                                          (/ fixed-du (- 1.0 (:min-track-share metrics)))
+                                          fixed-du)]
+                          (min height-s (/ (double w) needed-du))))
+        ;; Leave blocks out, least important first, until the text stays readable.
+        right         (loop [right (filterv blocks header-order)
+                             drop  drop-order]
+                        (if (or (>= (fit-s right) (* (:min-scale-share metrics) height-s))
+                                (empty? drop))
+                          right
+                          (recur (filterv #(not= % (first drop)) right) (rest drop))))
+        s             (fit-s right)
         m             (theme/su s (:margin metrics))
         gap           (theme/su s (:gap metrics))
         detail?       (contains? blocks :detail)

@@ -1,5 +1,6 @@
 (ns bardisplay.cell-test
   (:require [bardisplay.cell :as cell]
+            [bardisplay.theme :as theme]
             [clojure.test :refer [deftest is testing]]))
 
 (defn- overlap?
@@ -44,6 +45,18 @@
   (let [with    (cell/layout 1920 440 (cell/layout-blocks cell/all-blocks))
         without (cell/layout 1920 440 (cell/layout-blocks #{:track :time}))]
     (is (> (get-in without [:badge 3]) (get-in with [:badge 3])))))
+
+(deftest narrow-cells-drop-blocks-test
+  (testing "a narrow cell keeps readable text by leaving blocks out, tempo first"
+    (let [rects   (cell/layout 500 300 (cell/layout-blocks cell/all-blocks))
+          natural (theme/su (theme/scale 300) (:header theme/metrics))]
+      (is (not (contains? rects :tempo)))
+      (is (contains? rects :badge))
+      (is (contains? rects :track))
+      (is (>= (get-in rects [:badge 3]) (* 0.8 natural)))))
+  (testing "a wide cell keeps everything"
+    (is (= #{:badge :track :info :status :tempo :time :detail :preview}
+           (set (keys (cell/layout 1920 440 (cell/layout-blocks cell/all-blocks))))))))
 
 (deftest single-waveform-takes-the-space-test
   (is (> (get-in (cell/layout 1920 440 #{:preview}) [:preview 3]) 200))

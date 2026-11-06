@@ -71,6 +71,9 @@
    :info         {:full 300 :compact 220}
    ;; The share of the cell width the track title keeps when the header grows to fill a cell.
    :min-track-share 0.35
+   ;; How far below the scale its height allows a cell may shrink before header blocks
+   ;; are left out instead.
+   :min-scale-share 0.8
    ;; Below this many design units of width, a cell switches to compact mode.
    :compact-below 1250})
 
