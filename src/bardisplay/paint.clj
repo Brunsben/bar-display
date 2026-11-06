@@ -233,17 +233,17 @@
         h      (.getHeight c)
         s      (theme/block-scale h)
         active (live? snap)
-        t      (scroll-time (or now 0) player)]
+        clock  (scroll-time (or now 0) player)]
     (.setFont g (theme/font :teko Font/BOLD s 44))
     (.setPaint g (if active (theme/color :title) (theme/color :idle)))
     (draw-line g (cond
                    (not (pos? (or player 0))) (t :cell/no-player)
                    (not active)               (t :cell/offline)
                    :else                      (or title (t :cell/no-track)))
-               w (u s 48) scroll? t)
+               w (u s 48) scroll? clock)
     (.setFont g (theme/font :teko Font/PLAIN s 32))
     (.setPaint g (if (and active artist) (theme/color :artist) (theme/color :idle)))
-    (draw-line g (if active (or artist "—") "—") w (u s 92) scroll? t)))
+    (draw-line g (if active (or artist "—") "—") w (u s 92) scroll? clock)))
 
 (defn phrase-count
   "Turns the beats left in a phrase into the number shown and the text
@@ -266,7 +266,8 @@
    (case item
      :phrase (if-let [{:keys [label color text-color beats-left next]} (:phrase snap)]
                (let [[n unit] (phrase-count beats-left phrase-unit)]
-                 {:text       (str (str/upper-case label) " → "
+                 ;; The display font has no arrow glyph, so a guillemet points ahead.
+                 {:text       (str (str/upper-case label) " » "
                                    (if next (str/upper-case (:label next)) (t :cell/end))
                                    " · " n " " (t unit))
                   :fill       color
@@ -356,8 +357,8 @@
     (.setPaint g (cond (not active) (theme/color :idle)
                        (= 1 beat)   (theme/color :on-air)
                        :else        (theme/color :value)))
-    (.setFont g (theme/font :segment Font/PLAIN s 72))
-    (draw-centered g (if active (str beat) "-") (/ w 2.0) (u s 104))))
+    (.setFont g (theme/font :orbitron Font/BOLD s 64))
+    (draw-centered g (if active (str beat) "-") (/ w 2.0) (u s 98))))
 
 (defn- pill
   "Draws one status indicator. It is filled when lit and merely outlined

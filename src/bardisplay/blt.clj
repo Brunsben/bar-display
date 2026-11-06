@@ -10,6 +10,7 @@
   it by itself every time it starts."
   (:require [bardisplay.config :as config]
             [bardisplay.core :as core]
+            [bardisplay.i18n :as i18n :refer [t]]
             [bardisplay.settings :as settings]
             [bardisplay.sim :as sim]
             [bardisplay.status :as status]
@@ -21,7 +22,7 @@
 
 (def ^:private load-order
   "The bar display namespaces, each after the ones it depends on."
-  '[bardisplay.theme bardisplay.analysis bardisplay.sim bardisplay.state bardisplay.paint
+  '[bardisplay.i18n bardisplay.theme bardisplay.analysis bardisplay.sim bardisplay.state bardisplay.paint
     bardisplay.cell bardisplay.screen bardisplay.config bardisplay.core bardisplay.status
     bardisplay.settings bardisplay.blt])
 
@@ -68,18 +69,15 @@
   (mig/mig-panel
     :constraints ["insets 16, fillx" "[grow,fill]" "[]12[]12[]"]
     :items
-    [[(seesaw/label :text (str "<html><b>Bar Display</b><br>"
-                               "The displays open by themselves when Beat Link Trigger goes online, "
-                               "using the saved settings.</html>"))
-      "wrap"]
+    [[(seesaw/label :text (t :show/intro)) "wrap"]
      [status-label "wrap"]
      [(seesaw/flow-panel
         :align :left
-        :items [(seesaw/button :text "Settings…"
+        :items [(seesaw/button :text (t :show/settings)
                                :listen [:action (fn [_] (settings/show!))])
-                (seesaw/button :text "Open Displays"
+                (seesaw/button :text (t :show/open)
                                :listen [:action (fn [_] (settings/apply-saved!))])
-                (seesaw/button :text "Close Displays"
+                (seesaw/button :text (t :show/close)
                                :listen [:action (fn [_] (core/close!) (sim/stop!))])])
       "wrap"]]))
 
@@ -87,6 +85,7 @@
   "Called from the show's Global Setup Expression. Replaces the show's
   track list with the bar display controls and status."
   [show]
+  (i18n/set-language! (:language (config/load-settings)))
   (let [status-label (seesaw/label :text "")]
     ((requiring-resolve 'beat-link-trigger.show/block-tracks) show (show-panel status-label))
     (start-status-timer! status-label)))

@@ -43,11 +43,11 @@
 (deftest phrase-content-test
   (let [phrase {:label "Chorus" :color Color/RED :text-color Color/BLACK :beats-left 12 :next {:label "Down"}}
         snap   {:player 1 :phrase phrase}]
-    (is (= {:text "CHORUS → DOWN · 3 bars" :fill Color/RED :text-color Color/BLACK}
+    (is (= {:text "CHORUS » DOWN · 3 bars" :fill Color/RED :text-color Color/BLACK}
            (paint/info-content :phrase snap {:phrase-unit :bars})))
-    (is (= "CHORUS → DOWN · 12 beats"
+    (is (= "CHORUS » DOWN · 12 beats"
            (:text (paint/info-content :phrase snap {:phrase-unit :beats}))))
-    (is (= "CHORUS → END · 3 bars"
+    (is (= "CHORUS » END · 3 bars"
            (:text (paint/info-content :phrase (assoc-in snap [:phrase :next] nil) {}))))))
 
 (deftest info-slots-test

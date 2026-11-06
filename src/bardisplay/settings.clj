@@ -3,6 +3,8 @@
   lives here, so nothing has to be edited in source once it is running."
   (:require [bardisplay.config :as config]
             [bardisplay.core :as core]
+            [bardisplay.i18n :as i18n :refer [t]]
+            [bardisplay.screen :as screen]
             [bardisplay.sim :as sim]
             [bardisplay.status :as status]
             [bardisplay.theme :as theme]
@@ -21,22 +23,25 @@
   Object
   (toString [_] label))
 
-(def block-choices
-  "The display blocks that can be switched on and off, with their labels."
-  [[:track "Title and artist"]
-   [:status "On air / master / sync"]
-   [:tempo "Tempo"]
-   [:time "Time"]
-   [:detail "Scrolling waveform"]
-   [:preview "Waveform overview"]
-   [:phrase "Phrase"]
-   [:key "Key"]
-   [:loop "Loop"]
-   [:cue "Next cue"]])
+(def block-keys
+  "The display blocks that can be switched on and off, in the order the
+  settings list them. Each has a `:block/<name>` text."
+  [:track :status :tempo :time :beat :detail :preview :phrase :key :loop :cue])
 
-(def scroll-choices
-  "The title scrolling modes."
-  [(->Choice :off "Off") (->Choice :occasional "Occasionally")])
+(defn- scroll-choices []
+  [(->Choice :off (t :scroll/off)) (->Choice :occasional (t :scroll/occasional))])
+
+(defn- unit-choices []
+  [(->Choice :bars (t :unit/bars)) (->Choice :beats (t :unit/beats))])
+
+(defn- language-choices []
+  (into [(->Choice :auto (t :language/auto))]
+        (map (fn [{:keys [code name]}] (->Choice code name)) (i18n/available))))
+
+(defn- choice-for
+  "Finds the choice for `k`, or the first one."
+  [choices k]
+  (or (first (filter #(= (:key %) k) choices)) (first choices)))
 
 ;;; Running the displays -------------------------------------------------------
 
@@ -67,7 +72,8 @@
 (defn apply-settings!
   "Brings the displays in line with a settings map, starting or stopping
   the simulation as required. Returns the open displays, or `nil`."
-  [{:keys [display panels simulate?] :as settings}]
+  [{:keys [display panels simulate? language] :as settings}]
+  (i18n/set-language! language)
   (theme/set-thresholds! (:warn-seconds display) (:urgent-seconds display))
   (core/close!)
   (if simulate?
@@ -79,6 +85,12 @@
   "Opens the displays using the settings last saved from the window."
   []
   (apply-settings! (config/load-settings)))
+
+(defn- with-stored
+  "Adds the language and presets saved on disk to settings read from the
+  form, which does not hold them."
+  [settings]
+  (merge settings (select-keys (config/load-settings) [:language :presets])))
 
 ;;; Panel rows -----------------------------------------------------------------
 
@@ -93,7 +105,7 @@
   [saved]
   (let [choices (config/screen-choices)]
     (if (and (map? saved) (not-any? #(= (:id %) (:id saved)) choices))
-      (conj choices (config/->ScreenChoice (:id saved) (str (:id saved) "  (not connected)") saved))
+      (conj choices (config/->ScreenChoice (:id saved) (t :screen/not-connected (:id saved)) saved))
       choices)))
 
 (defn- panel-row
@@ -108,7 +120,7 @@
     {:screen        screen
      :layout        layout
      :players       (seesaw/text :text (str/join " " (:players panel)) :columns 8)
-     :remove        (seesaw/button :text "Remove")
+     :remove        (seesaw/button :text (t :settings/remove))
      :window-bounds (:window-bounds panel)}))
 
 (defn- new-panel
@@ -124,9 +136,9 @@
   "Lays the panel rows out again after one was added or removed."
   [root area rows]
   (seesaw/config! area :items
-                  (into [[(seesaw/label :text "Screen") ""]
-                         [(seesaw/label :text "Arrangement") ""]
-                         [(seesaw/label :text "Players") ""]
+                  (into [[(seesaw/label :text (t :settings/screen)) ""]
+                         [(seesaw/label :text (t :settings/arrangement)) ""]
+                         [(seesaw/label :text (t :settings/players)) ""]
                          [(seesaw/label :text "") "wrap"]]
                         (mapcat (fn [{:keys [screen layout players remove]}]
                                   [[screen ""] [layout ""] [players "growx"] [remove "wrap"]])
@@ -165,24 +177,27 @@
   (keyword (str "block-" (name k))))
 
 (defn- read-form
-  "Collects the window into a settings map. Returns `{:settings ...}` or
-  `{:errors [...]}`."
+  "Collects the window into a settings map (without language and
+  presets). Returns `{:settings ...}` or `{:errors [...]}`."
   [root rows]
   (let [saved   (mapv :window-bounds (:panels (config/load-settings)))
         results (map-indexed (fn [i row] (read-panel row (get saved i))) @rows)
-        errors  (keep-indexed (fn [i {:keys [error]}] (when error (str "Panel " (inc i) ": " error))) results)
+        errors  (keep-indexed (fn [i {:keys [error]}] (when error (t :status/panel-error (inc i) error))) results)
         pick    (fn [id] (seesaw/selection (seesaw/select root [(keyword (str "#" (name id)))])))]
     (if (seq errors)
       {:errors (vec errors)}
       {:settings (config/normalize
                   {:panels    (mapv :panel results)
-                   :display   {:blocks         (set (for [[k _] block-choices :when (pick (block-id k))] k))
-                               :brightness     (pick :brightness)
-                               :title-scroll   (:key (pick :scroll))
-                               :warn-seconds   (pick :warn)
-                               :urgent-seconds (pick :urgent)
-                               :scale          (pick :scale)
-                               :always-on-top? (pick :on-top)}
+                   :display   {:blocks          (set (filter #(pick (block-id %)) block-keys))
+                               :brightness      (pick :brightness)
+                               :title-scroll    (:key (pick :scroll))
+                               :phrase-unit     (:key (pick :phrase-unit))
+                               :warn-seconds    (pick :warn)
+                               :urgent-seconds  (pick :urgent)
+                               :scale           (pick :scale)
+                               :always-on-top?  (pick :on-top)
+                               :dim-off-air?    (pick :dim-off-air)
+                               :flash-downbeat? (pick :flash)}
                    :simulate? (pick :simulate)})})))
 
 ;;; Display section ------------------------------------------------------------
@@ -193,44 +208,55 @@
   (mig/mig-panel
     :constraints ["insets 0, hidemode 3" "[right]12[grow,fill]" "[]8[]"]
     :items
-    [[(seesaw/label :text "Show") "top"]
+    [[(seesaw/label :text (t :settings/show)) "top"]
      [(mig/mig-panel
         :constraints ["insets 0" "[]16[]" ""]
-        :items (vec (map-indexed (fn [i [k label]]
-                                   [(seesaw/checkbox :id (block-id k) :text label
+        :items (vec (map-indexed (fn [i k]
+                                   [(seesaw/checkbox :id (block-id k) :text (t (keyword "block" (name k)))
                                                      :selected? (contains? (:blocks display) k))
                                     (if (odd? i) "wrap" "")])
-                                 block-choices)))
+                                 block-keys)))
       "wrap"]
 
-     [(seesaw/label :text "Brightness") ""]
+     [(seesaw/label :text (t :settings/brightness)) ""]
      [(seesaw/slider :id :brightness :min 20 :max 100 :value (:brightness display)
                      :major-tick-spacing 20 :minor-tick-spacing 10 :paint-labels? true)
       "wrap"]
 
-     [(seesaw/label :text "Scroll long titles") ""]
-     [(seesaw/combobox :id :scroll :model scroll-choices) "wrap"]
+     [(seesaw/label :text (t :settings/scroll)) ""]
+     [(seesaw/combobox :id :scroll :model (scroll-choices)) "wrap"]
 
-     [(seesaw/label :text "Waveform zoom") ""]
+     [(seesaw/label :text (t :settings/phrase-unit)) ""]
+     [(seesaw/combobox :id :phrase-unit :model (unit-choices)) "wrap"]
+
+     [(seesaw/label :text (t :settings/zoom)) ""]
      [(seesaw/slider :id :scale :min 1 :max 16 :value (:scale display)
                      :major-tick-spacing 5 :minor-tick-spacing 1
                      :snap-to-ticks? true :paint-labels? true)
       "wrap"]
 
-     [(seesaw/label :text "Warn when left") ""]
+     [(seesaw/label :text (t :settings/warn)) ""]
      [(seesaw/spinner :id :warn
                       :model (seesaw/spinner-model (:warn-seconds display) :from 5 :to 600 :by 5))
       "split 2"]
-     [(seesaw/label :text "seconds") "wrap"]
+     [(seesaw/label :text (t :settings/seconds)) "wrap"]
 
-     [(seesaw/label :text "Urgent when left") ""]
+     [(seesaw/label :text (t :settings/urgent)) ""]
      [(seesaw/spinner :id :urgent
                       :model (seesaw/spinner-model (:urgent-seconds display) :from 5 :to 600 :by 5))
       "split 2"]
-     [(seesaw/label :text "seconds") "wrap"]
+     [(seesaw/label :text (t :settings/seconds)) "wrap"]
 
-     [(seesaw/label :text "Options") ""]
-     [(seesaw/checkbox :id :on-top :text "Keep above other windows"
+     [(seesaw/label :text (t :settings/options)) "top"]
+     [(seesaw/checkbox :id :dim-off-air :text (t :settings/dim-off-air)
+                       :selected? (:dim-off-air? display))
+      "wrap"]
+     [(seesaw/label :text "") ""]
+     [(seesaw/checkbox :id :flash :text (t :settings/flash)
+                       :selected? (:flash-downbeat? display))
+      "wrap"]
+     [(seesaw/label :text "") ""]
+     [(seesaw/checkbox :id :on-top :text (t :settings/on-top)
                        :selected? (:always-on-top? display))
       "wrap"]]))
 
@@ -248,12 +274,13 @@
     (if (seq errors)
       (show-status! root (mapv (fn [e] {:level :error :text e}) errors))
       (try
-        (config/save-settings! settings)
-        (apply-settings! settings)
+        (let [settings (with-stored settings)]
+          (config/save-settings! settings)
+          (apply-settings! settings))
         (show-status! root (status-lines))
-        (catch Throwable t
-          (timbre/error t "Could not apply bar display settings.")
-          (show-status! root [{:level :error :text (str "Failed: " (.getMessage t))}]))))))
+        (catch Throwable e
+          (timbre/error e "Could not apply bar display settings.")
+          (show-status! root [{:level :error :text (t :status/failed (.getMessage e))}]))))))
 
 (defn- stop!
   "Closes the displays and stops any simulation."
@@ -262,50 +289,135 @@
   (sim/stop!)
   (show-status! root (status-lines)))
 
+(defn- preset-names
+  "The saved presets, sorted."
+  []
+  (vec (sort (keys (:presets (config/load-settings))))))
+
+(defn- refresh-presets!
+  "Shows the saved presets, selecting `selected` if given."
+  [root selected]
+  (let [names (preset-names)
+        combo (seesaw/select root [:#preset])]
+    (seesaw/config! combo :model names)
+    (when (and selected (some #{selected} names))
+      (seesaw/selection! combo selected))
+    (doseq [id [:#preset :#load-preset :#delete-preset]]
+      (seesaw/config! (seesaw/select root [id]) :enabled? (boolean (seq names))))))
+
+(declare show!)
+
+(defn- rebuild!
+  "Closes the window and opens it again showing `settings`, which is how
+  a preset is loaded into the form and a new language takes effect."
+  [^JFrame root settings]
+  (.dispose root)
+  (reset! window nil)
+  (show! settings))
+
+(defn- current-form
+  "The settings the window shows right now, or the saved ones if the
+  form has errors."
+  [root rows]
+  (with-stored (or (:settings (read-form root rows)) (config/load-settings))))
+
+(defn- save-preset!
+  "Asks for a name and stores the form as a preset."
+  [root rows]
+  (let [{:keys [errors settings]} (read-form root rows)]
+    (if (seq errors)
+      (show-status! root (mapv (fn [e] {:level :error :text e}) errors))
+      (when-let [preset-name (some-> (seesaw/input root (t :preset/name-prompt)) str/trim not-empty)]
+        (config/save-settings! (config/save-preset (merge (config/load-settings) settings) preset-name))
+        (refresh-presets! root preset-name)))))
+
+(defn- top-section
+  "The language and preset choices at the top of the window."
+  []
+  (mig/mig-panel
+    :constraints ["insets 0" "[right]12[]12[][][]" ""]
+    :items [[(seesaw/label :text (t :settings/language)) ""]
+            [(seesaw/combobox :id :language :model (language-choices)) "wrap"]
+            [(seesaw/label :text (t :settings/preset)) ""]
+            [(seesaw/combobox :id :preset :model []) "growx"]
+            [(seesaw/button :id :load-preset :text (t :preset/load)) ""]
+            [(seesaw/button :id :save-preset :text (t :preset/save)) ""]
+            [(seesaw/button :id :delete-preset :text (t :preset/delete)) ""]]))
+
 (defn show!
   "Opens the bar display settings window, bringing it to the front if it
-  is already open."
-  []
-  (if-let [^JFrame existing @window]
-    (do (.toFront existing) existing)
-    (let [settings (config/load-settings)
-          display  (:display settings)
-          rows     (atom [])
-          area     (mig/mig-panel :constraints ["insets 0" "[][][grow,fill][]" ""])
-          content  (mig/mig-panel
-                     :constraints ["fillx" "[grow,fill]" ""]
-                     :items [[(seesaw/label :text "<html><b>Panels</b></html>") "wrap"]
-                             [area "wrap"]
-                             [(seesaw/button :id :add-panel :text "Add panel") "growx 0, left, wrap 16"]
-                             [(seesaw/label :text "<html><b>Display</b></html>") "wrap"]
-                             [(display-section display) "wrap 12"]
-                             [(seesaw/checkbox :id :simulate :text "Simulate players (no CDJs needed)"
-                                               :selected? (:simulate? settings))
-                              "wrap 12"]
-                             [(seesaw/label :id :status :text "Not running.") "growx, wrap"]
-                             [(seesaw/flow-panel :align :right
-                                                 :items [(seesaw/button :id :stop :text "Stop")
-                                                         (seesaw/button :id :apply :text "Apply")])
-                              "growx"]])
-          root     (seesaw/frame :title "Bar Display Settings"
-                                 :content content
-                                 :on-close :dispose
-                                 :resizable? false)]
-      (seesaw/selection! (seesaw/select root [:#scroll])
-                         (or (first (filter #(= (:key %) (:title-scroll display)) scroll-choices))
-                             (first scroll-choices)))
-      (doseq [panel (:panels settings)]
-        (add-row! root area rows panel))
-      (seesaw/listen (seesaw/select root [:#add-panel]) :action
-                     (fn [_]
-                       (add-row! root area rows (new-panel (count @rows)))
-                       (show-rows! root area rows)))
-      (seesaw/listen (seesaw/select root [:#apply]) :action (fn [_] (apply! root rows)))
-      (seesaw/listen (seesaw/select root [:#stop]) :action (fn [_] (stop! root)))
-      (seesaw/listen root :window-closed (fn [_] (reset! window nil)))
-      (theme/set-thresholds! (:warn-seconds display) (:urgent-seconds display))
-      (show-rows! root area rows)
-      (show-status! root (status-lines))
-      (.setLocationRelativeTo root nil)
-      (seesaw/show! root)
-      (reset! window root))))
+  is already open. Given `settings`, the form shows those instead of the
+  saved ones (they still only take effect with Apply)."
+  ([]
+   (show! nil))
+  ([settings]
+   (if-let [^JFrame existing @window]
+     (do (.toFront existing) existing)
+     (let [settings (or settings (config/load-settings))
+           _        (i18n/set-language! (:language settings))
+           display  (:display settings)
+           rows     (atom [])
+           area     (mig/mig-panel :constraints ["insets 0" "[][][grow,fill][]" ""])
+           content  (mig/mig-panel
+                      :constraints ["fillx" "[grow,fill]" ""]
+                      :items [[(top-section) "wrap 16"]
+                              [(seesaw/label :text (str "<html><b>" (t :settings/panels) "</b></html>")) "wrap"]
+                              [area "wrap"]
+                              [(seesaw/flow-panel
+                                 :align :left :hgap 0
+                                 :items [(seesaw/button :id :add-panel :text (t :settings/add-panel))
+                                         (seesaw/button :id :identify :text (t :settings/identify))])
+                               "wrap 16"]
+                              [(seesaw/label :text (str "<html><b>" (t :settings/display) "</b></html>")) "wrap"]
+                              [(display-section display) "wrap 12"]
+                              [(seesaw/checkbox :id :simulate :text (t :settings/simulate)
+                                                :selected? (:simulate? settings))
+                               "wrap 12"]
+                              [(seesaw/label :id :status :text (t :settings/not-running)) "growx, wrap"]
+                              [(seesaw/flow-panel :align :right
+                                                  :items [(seesaw/button :id :stop :text (t :settings/stop))
+                                                          (seesaw/button :id :apply :text (t :settings/apply))])
+                               "growx"]])
+           root     (seesaw/frame :title (t :settings/title)
+                                  :content content
+                                  :on-close :dispose
+                                  :resizable? false)
+           language (seesaw/select root [:#language])]
+       (seesaw/selection! (seesaw/select root [:#scroll]) (choice-for (scroll-choices) (:title-scroll display)))
+       (seesaw/selection! (seesaw/select root [:#phrase-unit]) (choice-for (unit-choices) (:phrase-unit display)))
+       (seesaw/selection! language (choice-for (language-choices) (:language settings)))
+       (doseq [panel (:panels settings)]
+         (add-row! root area rows panel))
+       (refresh-presets! root nil)
+
+       ;; Listeners go on after the initial selections, so setting those does not fire them.
+       (seesaw/listen language :selection
+                      (fn [_]
+                        (let [chosen (:key (seesaw/selection language))]
+                          (when (not= chosen (:language settings))
+                            (config/save-settings! (assoc (config/load-settings) :language chosen))
+                            (rebuild! root (assoc (current-form root rows) :language chosen))))))
+       (seesaw/listen (seesaw/select root [:#load-preset]) :action
+                      (fn [_]
+                        (when-let [preset-name (seesaw/selection (seesaw/select root [:#preset]))]
+                          (rebuild! root (config/load-preset (config/load-settings) preset-name)))))
+       (seesaw/listen (seesaw/select root [:#save-preset]) :action (fn [_] (save-preset! root rows)))
+       (seesaw/listen (seesaw/select root [:#delete-preset]) :action
+                      (fn [_]
+                        (when-let [preset-name (seesaw/selection (seesaw/select root [:#preset]))]
+                          (config/save-settings! (config/delete-preset (config/load-settings) preset-name))
+                          (refresh-presets! root nil))))
+       (seesaw/listen (seesaw/select root [:#add-panel]) :action
+                      (fn [_]
+                        (add-row! root area rows (new-panel (count @rows)))
+                        (show-rows! root area rows)))
+       (seesaw/listen (seesaw/select root [:#identify]) :action (fn [_] (screen/identify!)))
+       (seesaw/listen (seesaw/select root [:#apply]) :action (fn [_] (apply! root rows)))
+       (seesaw/listen (seesaw/select root [:#stop]) :action (fn [_] (stop! root)))
+       (seesaw/listen root :window-closed (fn [_] (compare-and-set! window root nil)))
+       (theme/set-thresholds! (:warn-seconds display) (:urgent-seconds display))
+       (show-rows! root area rows)
+       (show-status! root (status-lines))
+       (.setLocationRelativeTo root nil)
+       (seesaw/show! root)
+       (reset! window root)))))

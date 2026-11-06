@@ -144,6 +144,11 @@
       :else
       {:players (vec numbers)})))
 
+(def preset-keys
+  "What a preset holds: everything except the language and the presets
+  themselves."
+  [:panels :display :simulate?])
+
 (defn normalize
   "Fills in defaults and drops anything invalid, so the rest of the code
   can rely on the settings' shape."
@@ -153,7 +158,30 @@
                      (take max-panels)
                      (mapv #(update (merge default-panel %) :players clean-players)))
      :display   (update display :blocks set)
-     :simulate? (boolean (:simulate? settings))}))
+     :simulate? (boolean (:simulate? settings))
+     :language  (or (:language settings) :auto)
+     :presets   (into {} (map (fn [[preset-name preset]]
+                                [preset-name (select-keys (normalize (dissoc preset :presets)) preset-keys)]))
+                      (:presets settings))}))
+
+(defn save-preset
+  "Stores the current panels, display options and simulation under
+  `preset-name`."
+  [settings preset-name]
+  (assoc-in settings [:presets preset-name] (select-keys settings preset-keys)))
+
+(defn load-preset
+  "Replaces the panels, display options and simulation with those of a
+  preset. Unknown names change nothing."
+  [settings preset-name]
+  (if-let [preset (get-in settings [:presets preset-name])]
+    (normalize (merge settings preset))
+    settings))
+
+(defn delete-preset
+  "Forgets a preset."
+  [settings preset-name]
+  (update settings :presets dissoc preset-name))
 
 (defn panels
   "Turns the settings into the panel descriptions `bardisplay.core/open!`
@@ -184,7 +212,7 @@
   "Writes the settings out so the next session starts the same way."
   [settings]
   (try
-    (spit settings-file (pr-str (select-keys settings [:panels :display :simulate?])))
+    (spit settings-file (pr-str (select-keys settings [:panels :display :simulate? :language :presets])))
     (str settings-file)
     (catch Exception e
       (timbre/error e "Could not save" (str settings-file))
