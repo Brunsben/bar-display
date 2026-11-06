@@ -13,7 +13,8 @@
             [seesaw.core :as seesaw]
             [seesaw.mig :as mig]
             [taoensso.timbre :as timbre])
-  (:import [javax.swing JFrame]))
+  (:import [java.awt Toolkit]
+           [javax.swing JFrame]))
 
 (defonce ^{:private true
            :doc "Holds the settings window while it is open."}
@@ -132,6 +133,22 @@
            :players []
            :window-bounds [(+ x (* 60 index)) (+ y (* 60 index)) w h])))
 
+(defn- fit-to-screen!
+  "Sizes the window to its content, but never taller or wider than the
+  usable part of the screen it is on; the form scrolls instead, and the
+  buttons at the bottom stay visible."
+  [^JFrame root]
+  (seesaw/pack! root)
+  (let [config (.getGraphicsConfiguration root)
+        bounds (.getBounds config)
+        insets (.getScreenInsets (Toolkit/getDefaultToolkit) config)
+        max-w  (- (.-width bounds) (.-left insets) (.-right insets) 40)
+        max-h  (- (.-height bounds) (.-top insets) (.-bottom insets) 40)
+        size   (.getSize root)
+        ;; Leave room for the vertical scroll bar when the height has to be cut.
+        width  (min max-w (if (> (.-height size) max-h) (+ (.-width size) 24) (.-width size)))]
+    (.setSize root (int width) (int (min max-h (.-height size))))))
+
 (defn- show-rows!
   "Lays the panel rows out again after one was added or removed."
   [root area rows]
@@ -146,7 +163,7 @@
   (doseq [row @rows]
     (seesaw/config! (:remove row) :enabled? (> (count @rows) 1)))
   (seesaw/config! (seesaw/select root [:#add-panel]) :enabled? (< (count @rows) config/max-panels))
-  (seesaw/pack! root))
+  (fit-to-screen! root))
 
 (defn- add-row!
   "Adds a row for `panel`, wiring up its Remove button."
@@ -358,7 +375,7 @@
            display  (:display settings)
            rows     (atom [])
            area     (mig/mig-panel :constraints ["insets 0" "[][][grow,fill][]" ""])
-           content  (mig/mig-panel
+           form     (mig/mig-panel
                       :constraints ["fillx" "[grow,fill]" ""]
                       :items [[(top-section) "wrap 16"]
                               [(seesaw/label :text (str "<html><b>" (t :settings/panels) "</b></html>")) "wrap"]
@@ -372,16 +389,23 @@
                               [(display-section display) "wrap 12"]
                               [(seesaw/checkbox :id :simulate :text (t :settings/simulate)
                                                 :selected? (:simulate? settings))
-                               "wrap 12"]
+                               ""]])
+           ;; Status and buttons stay at the bottom; only the form above them scrolls.
+           bottom   (mig/mig-panel
+                      :constraints ["fillx" "[grow,fill]" ""]
+                      :items [[(seesaw/separator) "growx, wrap"]
                               [(seesaw/label :id :status :text (t :settings/not-running)) "growx, wrap"]
                               [(seesaw/flow-panel :align :right
                                                   :items [(seesaw/button :id :stop :text (t :settings/stop))
                                                           (seesaw/button :id :apply :text (t :settings/apply))])
                                "growx"]])
+           scroller (doto (seesaw/scrollable form :border 0)
+                      (-> .getVerticalScrollBar (.setUnitIncrement 16)))
+           content  (seesaw/border-panel :center scroller :south bottom)
            root     (seesaw/frame :title (t :settings/title)
                                   :content content
                                   :on-close :dispose
-                                  :resizable? false)
+                                  :resizable? true)
            language (seesaw/select root [:#language])]
        (seesaw/selection! (seesaw/select root [:#scroll]) (choice-for (scroll-choices) (:title-scroll display)))
        (seesaw/selection! (seesaw/select root [:#phrase-unit]) (choice-for (unit-choices) (:phrase-unit display)))
