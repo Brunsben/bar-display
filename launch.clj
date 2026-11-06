@@ -6,8 +6,8 @@
 ;;;;
 ;;;; Note that this standalone launcher can only show simulated players. Live
 ;;;; CDJ data is available only inside Beat Link Trigger, because the DJ Link
-;;;; protocol lets just one program per machine onto the network. See
-;;;; blt/shared_functions.clj for running it there.
+;;;; protocol lets just one program per machine onto the network. To run it
+;;;; there, open BarDisplay.bls as a show (see README.md).
 
 (require 'bardisplay.settings)
 
