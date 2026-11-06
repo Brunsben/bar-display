@@ -20,6 +20,14 @@
 (def ^WaveformFinder waveform-finder (WaveformFinder/getInstance))
 (def ^AnalysisTagFinder analysis-finder (AnalysisTagFinder/getInstance))
 
+(defn live-ready?
+  "Checks whether Beat Link is running, which Beat Link Trigger takes
+  care of when it goes online. Live waveform components may only be
+  pointed at a player then: otherwise they start Beat Link themselves
+  and block the Swing thread while it searches for a network."
+  []
+  (and (.isRunning virtual-cdj) (.isRunning time-finder)))
+
 (defn- online?
   "Checks whether a player is currently announcing itself on the network."
   [n]

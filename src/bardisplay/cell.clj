@@ -178,20 +178,30 @@
 
 (defn- live-waveforms
   "Waveform components in auto-tracking mode, which subscribe to the
-  Beat Link finders themselves and repaint as the player moves."
+  Beat Link finders themselves and repaint as the player moves. They are
+  only connected to the cell's player while Beat Link is running (see
+  `state/live-ready?`); each tick catches up when that changes."
   [^JPanel detail-holder ^JPanel preview-holder scale]
-  (let [detail  (style-waveform! (WaveformDetailComponent. (int 0)))
-        preview (style-waveform! (WaveformPreviewComponent. (int 0)))]
+  (let [detail   (style-waveform! (WaveformDetailComponent. (int 0)))
+        preview  (style-waveform! (WaveformPreviewComponent. (int 0)))
+        wanted   (atom 0)
+        attached (atom 0)
+        sync!    (fn []
+                   (let [target (if (state/live-ready?) @wanted 0)]
+                     (when (not= target @attached)
+                       (reset! attached target)
+                       (.setMonitoredPlayer ^WaveformDetailComponent detail (int target))
+                       (.setMonitoredPlayer ^WaveformPreviewComponent preview (int target)))))]
     (.setScale ^WaveformDetailComponent detail (int scale))
     (.add detail-holder ^JComponent detail BorderLayout/CENTER)
     (.add preview-holder ^JComponent preview BorderLayout/CENTER)
     {:attach!  (fn [n]
-                 (.setMonitoredPlayer ^WaveformDetailComponent detail (int n))
-                 (.setMonitoredPlayer ^WaveformPreviewComponent preview (int n)))
-     :advance! (fn [_ _ _])
+                 (reset! wanted n)
+                 (sync!))
+     :advance! (fn [_ _ _] (sync!))
      :release! (fn []
-                 (.setMonitoredPlayer ^WaveformDetailComponent detail (int 0))
-                 (.setMonitoredPlayer ^WaveformPreviewComponent preview (int 0)))}))
+                 (reset! wanted 0)
+                 (sync!))}))
 
 (defn- simulated-waveforms
   "Waveform components in data mode, rebuilt whenever the cell is pointed
