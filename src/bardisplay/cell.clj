@@ -80,7 +80,7 @@
                         natural
                         (let [fixed-du (+ (design-w :badge) (reduce + 0 (map design-w right)))
                               gaps     (* gap (inc (count right)))
-                              room     (- w (* 2 m) gaps (theme/su s (:min-track metrics)))
+                              room     (- (* w (- 1.0 (:min-track-share metrics))) (* 2 m) gaps)
                               widest   (long (/ (* room (:header metrics)) fixed-du))]
                           (max natural (min avail-h widest))))
         hs            (/ (double header-h) (:header metrics))

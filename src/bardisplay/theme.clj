@@ -69,8 +69,8 @@
    :tempo        {:full 230 :compact 178}
    :time         {:full 330 :compact 214}
    :info         {:full 300 :compact 220}
-   ;; The narrowest the track title is squeezed to when the header grows to fill a cell.
-   :min-track    200
+   ;; The share of the cell width the track title keeps when the header grows to fill a cell.
+   :min-track-share 0.35
    ;; Below this many design units of width, a cell switches to compact mode.
    :compact-below 1250})
 
