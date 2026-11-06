@@ -12,36 +12,67 @@
             [bardisplay.core :as core]
             [bardisplay.settings :as settings]
             [bardisplay.sim :as sim]
+            [bardisplay.status :as status]
             [seesaw.core :as seesaw]
             [seesaw.mig :as mig]
-            [taoensso.timbre :as timbre]))
+            [taoensso.timbre :as timbre])
+  (:import [java.awt.event ActionListener]
+           [javax.swing Timer]))
 
 (def ^:private load-order
   "The bar display namespaces, each after the ones it depends on."
-  '[bardisplay.theme bardisplay.sim bardisplay.state bardisplay.paint bardisplay.cell
-    bardisplay.screen bardisplay.core bardisplay.config bardisplay.settings bardisplay.blt])
+  '[bardisplay.theme bardisplay.analysis bardisplay.sim bardisplay.state bardisplay.paint
+    bardisplay.cell bardisplay.screen bardisplay.core bardisplay.config bardisplay.status
+    bardisplay.settings bardisplay.blt])
+
+(defonce ^{:private true
+           :doc "The timer refreshing the status in the show window."}
+  status-timer
+  (atom nil))
+
+(defn- stop-status-timer!
+  "Stops refreshing the show window status."
+  []
+  (when-let [^Timer timer (first (reset-vals! status-timer nil))]
+    (.stop timer)))
+
+(defn- start-status-timer!
+  "Refreshes `label` with the current status every second."
+  [label]
+  (stop-status-timer!)
+  (let [timer (Timer. 1000 (reify ActionListener
+                             (actionPerformed [_ _]
+                               (try
+                                 (seesaw/config! label :text (status/html (settings/status-lines)))
+                                 (catch Throwable t
+                                   (timbre/error t "Bar display: could not update the status."))))))]
+    (.setInitialDelay timer 0)
+    (.start timer)
+    (reset! status-timer timer)))
 
 (defn reload!
   "Reloads every bar display namespace from source. The show calls this
   when it is reopened in a running Beat Link Trigger, so edits (or a
   `git pull`) take effect without restarting."
   []
+  (stop-status-timer!)
   (core/close!)
   (sim/stop!)
   (doseq [n load-order]
     (require n :reload)))
 
 (defn- show-panel
-  "Builds what the show window displays in place of the track list: a
-  short explanation and the buttons needed to drive the displays."
-  []
+  "Builds what the show window displays in place of the track list: the
+  current status and the buttons needed to drive the displays."
+  [status-label]
   (mig/mig-panel
-    :constraints ["insets 16, fillx" "[grow,fill]" "[]12[]"]
+    :constraints ["insets 16, fillx" "[grow,fill]" "[]12[]12[]"]
     :items
-    [[(seesaw/label :text (str "<html><b>Bar Display</b><br><br>"
+    [[(seesaw/label :text (str "<html><b>Bar Display</b><br>"
                                "The displays open by themselves when Beat Link Trigger goes online, "
                                "using the saved settings.</html>"))
       "wrap"]
+     [status-label "wrap"]
      [(seesaw/flow-panel
         :align :left
         :items [(seesaw/button :text "Settings…"
@@ -54,9 +85,11 @@
 
 (defn setup!
   "Called from the show's Global Setup Expression. Replaces the show's
-  track list with the bar display controls."
+  track list with the bar display controls and status."
   [show]
-  ((requiring-resolve 'beat-link-trigger.show/block-tracks) show (show-panel)))
+  (let [status-label (seesaw/label :text "")]
+    ((requiring-resolve 'beat-link-trigger.show/block-tracks) show (show-panel status-label))
+    (start-status-timer! status-label)))
 
 (defn online!
   "Called from the show's Came Online Expression. Opens the displays with
@@ -71,13 +104,15 @@
 (defn shutdown!
   "Called from the show's Global Shutdown Expression."
   []
+  (stop-status-timer!)
   (core/close!)
   (sim/stop!))
 
 (comment
   ;; Handy things to evaluate from Beat Link Trigger's nREPL.
-  (settings/show!)                                     ; Reopen the settings window.
+  (settings/show!)                                          ; Reopen the settings window.
   ((requiring-resolve 'bardisplay.screen/describe-screens)) ; Which screen is which?
+  (core/status)                                             ; What happened to each panel?
   (core/close!)
   ((requiring-resolve 'bardisplay.dev/render-samples) "target/preview") ; Check the layout offline.
   )
