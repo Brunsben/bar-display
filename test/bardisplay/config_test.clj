@@ -52,6 +52,31 @@
     (is (= settings (config/update-window-bounds settings 1 [5 6 7 8])) "full screen panels keep theirs")
     (is (= settings (config/update-window-bounds settings 5 [5 6 7 8])) "unknown panels are ignored")))
 
+(deftest presets-test
+  (let [club     (config/normalize {:panels [{:screen {:id "B"} :players [1 2]}]})
+        home     (config/normalize {:panels [{:screen :window :players [3]}] :simulate? true})
+        saved    (config/save-preset (assoc club :language "de") "Club")
+        switched (config/load-preset (merge saved (select-keys home [:panels :simulate?])) "Club")]
+    (testing "a preset holds panels, display and simulation, not the language or other presets"
+      (is (= #{:panels :display :simulate?} (set (keys (get-in saved [:presets "Club"]))))))
+    (testing "loading puts the preset back and keeps language and presets"
+      (is (= (:panels club) (:panels switched)))
+      (is (false? (:simulate? switched)))
+      (is (= "de" (:language switched)))
+      (is (contains? (:presets switched) "Club")))
+    (testing "an unknown preset changes nothing"
+      (is (= saved (config/load-preset saved "Nope"))))
+    (testing "deleting"
+      (is (empty? (:presets (config/delete-preset saved "Club")))))))
+
+(deftest normalize-language-and-presets-test
+  (let [n (config/normalize {:language "de" :presets {"X" {:panels [{:players [1 9]}]}}})]
+    (is (= "de" (:language n)))
+    (is (= [1] (get-in n [:presets "X" :panels 0 :players])) "presets are cleaned like settings")
+    (is (= :bars (get-in n [:presets "X" :display :phrase-unit]))))
+  (is (= :auto (:language (config/normalize {}))))
+  (is (= {} (:presets (config/normalize {})))))
+
 (deftest default-window-is-bar-shaped-test
   (let [[_ _ w h] (:window-bounds config/default-panel)]
     (is (= [1920 480] [w h]))))

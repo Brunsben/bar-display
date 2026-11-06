@@ -35,6 +35,11 @@
     (is (= :window (:screen c)))
     (is (= {:screen :window} (:panel c)))))
 
+(deftest screens-changed-test
+  (is (not (screen/screens-changed? ["A" "B"] ["B" "A"])) "order does not matter")
+  (is (screen/screens-changed? ["A"] ["A" "B"]) "a screen was plugged in")
+  (is (screen/screens-changed? ["A" "B"] ["A"]) "a screen was unplugged"))
+
 (deftest dim-alpha-test
   (is (zero? (screen/dim-alpha 100)))
   (is (zero? (screen/dim-alpha nil)))

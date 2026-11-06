@@ -109,6 +109,11 @@
   []
   (sort (keys (:players @simulation))))
 
+(defn any-on-air?
+  "Checks whether any simulated player is on air."
+  []
+  (boolean (some :on-air (vals (:players @simulation)))))
+
 (defn track
   "Returns the simulated track data loaded on a player, which
   `bardisplay.cell` needs to build its waveform components."

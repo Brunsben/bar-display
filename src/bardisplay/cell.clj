@@ -13,7 +13,7 @@
             [clojure.core.async :as async]
             [seesaw.core :as seesaw]
             [taoensso.timbre :as timbre])
-  (:import [java.awt BorderLayout Dimension]
+  (:import [java.awt BasicStroke BorderLayout Color Dimension Graphics Graphics2D]
            [javax.swing JComponent JPanel]
            [org.deepsymmetry.beatlink.data WaveformDetailComponent WaveformPreviewComponent]))
 
@@ -25,7 +25,7 @@
 (def all-blocks
   "Every display block that can be switched on or off. The player badge
   is always shown and is not listed."
-  #{:track :status :tempo :time :detail :preview :phrase :key :loop :cue})
+  #{:track :status :tempo :time :beat :detail :preview :phrase :key :loop :cue})
 
 (def info-items
   "The optional entries of the info block, in display order."
@@ -33,12 +33,32 @@
 
 (def header-order
   "The header blocks to the right of the track title, left to right."
-  [:info :status :tempo :time])
+  [:info :beat :status :tempo :time])
 
 (def drop-order
   "The header blocks left out, in this order, when a cell is too narrow
   to show them all at a readable size. The badge and title always stay."
-  [:tempo :status :time :info])
+  [:tempo :status :beat :time :info])
+
+(def dim-alpha
+  "How strongly a deck that is not on air is darkened."
+  0.55)
+
+(def flash-ms
+  "How long the frame lights up on a downbeat."
+  150)
+
+(defn dim?
+  "Checks whether a cell should be darkened: dimming is `enabled?`, some
+  deck reports being on air (`any-on-air?`), and this live deck is not."
+  [snap any-on-air? enabled?]
+  (boolean (and enabled? any-on-air? (paint/live? snap) (not (:on-air snap)))))
+
+(defn downbeat?
+  "Checks whether a live player has just moved onto the first beat of a
+  bar."
+  [previous current]
+  (boolean (and (paint/live? current) (= 1 (:beat current)) (not= 1 (:beat previous)))))
 
 (def repaint-groups
   "Which snapshot keys each painted component depends on. The animation
@@ -46,6 +66,7 @@
   {:badge  [:player :online? :playing :beat]
    :track  [:player :online? :title :artist]
    :info   [:player :online? :phrase :key :looping :loop-beats :next-cue]
+   :beat   [:player :online? :beat]
    :status [:player :online? :on-air :master :synced :bpm-only]
    :tempo  [:player :online? :pitch :tempo :master]
    :time   [:player :online? :played :remain :precise]})
@@ -157,20 +178,30 @@
 
 (defn- live-waveforms
   "Waveform components in auto-tracking mode, which subscribe to the
-  Beat Link finders themselves and repaint as the player moves."
+  Beat Link finders themselves and repaint as the player moves. They are
+  only connected to the cell's player while Beat Link is running (see
+  `state/live-ready?`); each tick catches up when that changes."
   [^JPanel detail-holder ^JPanel preview-holder scale]
-  (let [detail  (style-waveform! (WaveformDetailComponent. (int 0)))
-        preview (style-waveform! (WaveformPreviewComponent. (int 0)))]
+  (let [detail   (style-waveform! (WaveformDetailComponent. (int 0)))
+        preview  (style-waveform! (WaveformPreviewComponent. (int 0)))
+        wanted   (atom 0)
+        attached (atom 0)
+        sync!    (fn []
+                   (let [target (if (state/live-ready?) @wanted 0)]
+                     (when (not= target @attached)
+                       (reset! attached target)
+                       (.setMonitoredPlayer ^WaveformDetailComponent detail (int target))
+                       (.setMonitoredPlayer ^WaveformPreviewComponent preview (int target)))))]
     (.setScale ^WaveformDetailComponent detail (int scale))
     (.add detail-holder ^JComponent detail BorderLayout/CENTER)
     (.add preview-holder ^JComponent preview BorderLayout/CENTER)
     {:attach!  (fn [n]
-                 (.setMonitoredPlayer ^WaveformDetailComponent detail (int n))
-                 (.setMonitoredPlayer ^WaveformPreviewComponent preview (int n)))
-     :advance! (fn [_ _ _])
+                 (reset! wanted n)
+                 (sync!))
+     :advance! (fn [_ _ _] (sync!))
      :release! (fn []
-                 (.setMonitoredPlayer ^WaveformDetailComponent detail (int 0))
-                 (.setMonitoredPlayer ^WaveformPreviewComponent preview (int 0)))}))
+                 (reset! wanted 0)
+                 (sync!))}))
 
 (defn- simulated-waveforms
   "Waveform components in data mode, rebuilt whenever the cell is pointed
@@ -219,6 +250,22 @@
           (.setBounds (int x) (int y) (int w) (int h)))
         (.setVisible child false)))))
 
+(defn- paint-overlay!
+  "Draws what covers the whole cell: the darkening of a deck that is not
+  on air, and the frame lit on a downbeat."
+  [^JComponent panel ^Graphics g {:keys [dim? flash?]}]
+  (let [w (.getWidth panel)
+        h (.getHeight panel)]
+    (when dim?
+      (.setColor g (Color. (float 0) (float 0) (float 0) (float dim-alpha)))
+      (.fillRect g 0 0 w h))
+    (when flash?
+      (let [^Graphics2D g2 g
+            stroke         (max 3 (theme/su (theme/scale h) 6))]
+        (.setColor g2 (theme/color :on-air))
+        (.setStroke g2 (BasicStroke. (float stroke)))
+        (.drawRect g2 (quot stroke 2) (quot stroke 2) (- w stroke) (- h stroke))))))
+
 (defn- canvas
   "Creates one of the painted header components. `paint-fn` receives the
   current snapshot, the component and the graphics context."
@@ -232,29 +279,36 @@
   down, which stops the animation loop and releases the waveform
   components. `options` holds `:scale` (waveform detail zoom; larger
   values show more of the track), `:blocks` (which blocks to show, see
-  `all-blocks`) and `:title-scroll` (`:off` or `:occasional`).
+  `all-blocks`), `:title-scroll` (`:off` or `:occasional`),
+  `:phrase-unit` (`:bars` or `:beats`), `:dim-off-air?` and
+  `:flash-downbeat?`.
 
-  Returns a map containing the Swing `:panel`, the `:snapshot` atom and
-  a `:set-player!` function."
-  [shutdown-chan {:keys [scale blocks title-scroll]}]
+  Returns a map containing the Swing `:panel`, the `:snapshot` atom, the
+  `:overlay` atom and a `:set-player!` function."
+  [shutdown-chan {:keys [scale blocks title-scroll phrase-unit dim-off-air? flash-downbeat?]}]
   (let [scale    (or scale 4)
         chosen   (set (or blocks all-blocks))
         items    (filterv chosen info-items)
         blocks   (layout-blocks chosen)
         scroll?  (= title-scroll :occasional)
+        info-opt {:phrase-unit (or phrase-unit :bars)}
         ;; The player number is owned by `set-player!`; the snapshot is owned by the
         ;; animation loop. Keeping them apart stops a tick in flight from reverting
         ;; a reassignment that happened while it was gathering state.
         player   (atom 0)
         snapshot (atom state/empty-snapshot)
         moving   (atom false)
+        ;; What is drawn over the whole cell: dimming, and the downbeat flash.
+        overlay  (atom {:dim? false :flash? false})
+        flash-to (atom 0)
         detail   (holder)
         preview  (holder)
         children {:badge   (canvas paint/badge snapshot)
                   :track   (canvas (fn [snap c g]
                                      (paint/track snap {:scroll? scroll? :now (System/currentTimeMillis)} c g))
                                    snapshot)
-                  :info    (canvas (fn [snap c g] (paint/info snap items c g)) snapshot)
+                  :info    (canvas (fn [snap c g] (paint/info snap items info-opt c g)) snapshot)
+                  :beat    (canvas paint/beat-counter snapshot)
                   :status  (canvas paint/status snapshot)
                   :tempo   (canvas paint/tempo snapshot)
                   :time    (canvas paint/time-display snapshot)
@@ -265,7 +319,13 @@
                    (live-waveforms detail preview scale))
         panel    (proxy [JPanel] []
                    (doLayout []
-                     (lay-out! ^JPanel this children blocks)))]
+                     (lay-out! ^JPanel this children blocks))
+                   ;; Children repainting themselves must go through us, so the overlay
+                   ;; is drawn over them too.
+                   (isOptimizedDrawingEnabled [] false)
+                   (paintChildren [^Graphics g]
+                     (proxy-super paintChildren g)
+                     (paint-overlay! this g @overlay)))]
     (doto panel
       (.setLayout nil)
       (.setOpaque true)
@@ -290,14 +350,22 @@
                                    (paint/scrolling? (paint/scroll-time (System/currentTimeMillis)
                                                                         (:player current))))
                     ;; Keep repainting the title while it scrolls, and once more when it stops.
-                    stale     (cond-> changed (or scrolling @moving) (conj :track))]
+                    stale     (cond-> changed (or scrolling @moving) (conj :track))
+                    now       (System/currentTimeMillis)
+                    _         (when (and flash-downbeat? (downbeat? previous current))
+                                (reset! flash-to (+ now flash-ms)))
+                    covering  {:dim?   (dim? current (and dim-off-air? (state/any-on-air?)) dim-off-air?)
+                               :flash? (< now @flash-to)}
+                    redraw?   (not= covering @overlay)]
                 (reset! moving scrolling)
+                (reset! overlay covering)
                 (when (seq changed)
                   (reset! snapshot current))
                 (seesaw/invoke-later
                   ((:advance! waves) (:player current) (:played current) (:playing current))
-                  (when (seq stale)
-                    (seesaw/repaint! (mapv children (distinct stale))))))
+                  (cond
+                    redraw?     (seesaw/repaint! panel)
+                    (seq stale) (seesaw/repaint! (mapv children (distinct stale))))))
               (catch Throwable t
                 (timbre/error t "Problem updating bar display cell.")))
             (recur))
@@ -305,6 +373,7 @@
 
     {:panel       panel
      :snapshot    snapshot
+     :overlay     overlay
      :set-player! (fn [n]
                     (let [n (long (or n 0))]
                       (when (not= n @player)

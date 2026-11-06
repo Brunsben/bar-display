@@ -62,15 +62,38 @@
                                      shutdown-chan close!)]
         [(assoc entry :open? (some? opened)) opened]))))
 
+(def screen-check-interval
+  "How often, in milliseconds, the attached screens are checked for
+  changes while the displays are running."
+  3000)
+
+(declare open!)
+
+(defn- watch-screens!
+  "Reopens the displays with the same panels whenever a screen is
+  plugged in or unplugged, so a panel finds its screen however late it
+  is connected. Stops when `shutdown-chan` closes."
+  [shutdown-chan panels options]
+  (let [ids (screen/screen-ids)]
+    (async/go-loop []
+      (let [[_ channel] (async/alts! [shutdown-chan (async/timeout screen-check-interval)])]
+        (when-not (= channel shutdown-chan)
+          (if (screen/screens-changed? ids (screen/screen-ids))
+            (do (timbre/info "Bar display: screens changed, reopening the displays.")
+                (seesaw/invoke-later (open! panels options)))
+            (recur)))))))
+
 (defn open!
   "Opens the displays described by `panels` (see
   `bardisplay.config/panels`), closing any that were already open.
   `options` may hold `:on-bounds`, called with a panel index and
   `[x y width height]` whenever a windowed panel is moved or resized.
-  Returns the open displays, or `nil` if no panel could be opened."
+  Until `close!` is called, the displays are reopened whenever the
+  attached screens change. Returns the open displays, or `nil` if no
+  panel could be opened right now."
   ([panels]
    (open! panels {}))
-  ([panels {:keys [on-bounds]}]
+  ([panels {:keys [on-bounds] :as options}]
    (close!)
    (util/load-fonts)
    (let [shutdown-chan (async/promise-chan)
@@ -78,20 +101,21 @@
          results       (vec (map-indexed (partial open-panel shutdown-chan on-bounds) resolved))
          opened        (vec (keep second results))]
      (reset! panel-status (mapv first results))
+     ;; Kept even when nothing opened, so the screen watch can still find them a screen.
+     (reset! displays {:panels opened :shutdown-chan shutdown-chan})
+     (watch-screens! shutdown-chan panels options)
      (if (seq opened)
        (do
-         (reset! displays {:panels opened :shutdown-chan shutdown-chan})
          (timbre/info "Bar display: opened" (count opened) "panel(s) on" (pr-str (mapv :screen opened)))
          @displays)
        (do
-         (async/close! shutdown-chan)
-         (timbre/warn "Bar display: no panel could be opened.")
+         (timbre/warn "Bar display: no panel could be opened yet.")
          nil)))))
 
 (defn open?
-  "Checks whether the bar displays are currently open."
+  "Checks whether any bar display is currently open."
   []
-  (some? @displays))
+  (boolean (seq (:panels @displays))))
 
 (defn open-panels
   "Returns the open panels, each with its `:frame` and `:cells`."

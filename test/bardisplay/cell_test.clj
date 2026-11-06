@@ -59,8 +59,37 @@
       (is (contains? rects :time))
       (is (<= (get-in rects [:badge 3]) (:header theme/metrics)))))
   (testing "a wide cell keeps everything"
-    (is (= #{:badge :track :info :status :tempo :time :detail :preview}
+    (is (= #{:badge :track :info :beat :status :tempo :time :detail :preview}
            (set (keys (cell/layout 1920 440 (cell/layout-blocks cell/all-blocks))))))))
+
+(deftest offline-cell-does-not-start-beat-link-test
+  ;; A live waveform pointed at a player starts Beat Link's finders by itself, which
+  ;; blocks the Swing thread while it searches for a DJ Link network. Cells must leave
+  ;; that to Beat Link Trigger and only connect once it is online.
+  (let [shutdown (clojure.core.async/promise-chan)
+        built    (cell/create shutdown {})]
+    (try
+      ((:set-player! built) 1)
+      (Thread/sleep 300)
+      (seesaw.core/invoke-now nil)  ; returns only if the Swing thread is free
+      (is (not (.isRunning (org.deepsymmetry.beatlink.VirtualCdj/getInstance))))
+      (finally
+        (clojure.core.async/close! shutdown)))))
+
+(deftest dim-test
+  (let [off-air {:player 1 :online? true :on-air false}]
+    (is (cell/dim? off-air true true))
+    (is (not (cell/dim? (assoc off-air :on-air true) true true)) "the deck on air stays bright")
+    (is (not (cell/dim? off-air false true)) "nothing is dimmed when no deck reports on air")
+    (is (not (cell/dim? off-air true false)) "switched off")
+    (is (not (cell/dim? {:player 1 :online? false} true true)) "offline cells are grey already")
+    (is (not (cell/dim? {:player 0} true true)))))
+
+(deftest downbeat-test
+  (is (cell/downbeat? {:player 1 :beat 4} {:player 1 :beat 1}))
+  (is (not (cell/downbeat? {:player 1 :beat 1} {:player 1 :beat 1})) "only on the change")
+  (is (not (cell/downbeat? {:player 1 :beat 1} {:player 1 :beat 2})))
+  (is (not (cell/downbeat? {:player 1 :beat 4} {:player 1 :online? false :beat 1}))))
 
 (deftest single-waveform-takes-the-space-test
   (is (> (get-in (cell/layout 1920 440 #{:preview}) [:preview 3]) 200))

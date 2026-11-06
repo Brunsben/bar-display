@@ -14,6 +14,7 @@
                    :warn-seconds 60 :urgent-seconds 30 :scale 4 :always-on-top? false}
        :simulate? false}"
   (:require [bardisplay.cell :as cell]
+            [bardisplay.i18n :refer [t]]
             [bardisplay.screen :as screen]
             [clojure.edn :as edn]
             [clojure.java.io :as io]
@@ -46,19 +47,22 @@
                :warn-seconds   60
                :urgent-seconds 30
                :scale          4
-               :always-on-top? false}
+               :always-on-top? false
+               :phrase-unit     :bars
+               :dim-off-air?    true
+               :flash-downbeat? false}
    :simulate? false})
 
 (defrecord Layout [key label describe]
   Object
-  (toString [_] label))
+  (toString [_] (t label)))
 
 (def layouts
-  "The ways a panel's cells can be arranged. `describe` turns a player
-  count into the grid of rows and columns to use."
-  [(->Layout :row "Side by side" (fn [n] {:rows 1 :columns n}))
-   (->Layout :column "Stacked" (fn [n] {:rows n :columns 1}))
-   (->Layout :grid "Grid (two per row)" (fn [n] {:rows (long (Math/ceil (/ n 2.0))) :columns (min n 2)}))])
+  "The ways a panel's cells can be arranged. `label` is the text key;
+  `describe` turns a player count into the grid of rows and columns."
+  [(->Layout :row :layout/row (fn [n] {:rows 1 :columns n}))
+   (->Layout :column :layout/column (fn [n] {:rows n :columns 1}))
+   (->Layout :grid :layout/grid (fn [n] {:rows (long (Math/ceil (/ n 2.0))) :columns (min n 2)}))])
 
 (defn layout-for
   "Looks up a layout by its key."
@@ -74,7 +78,7 @@
   "Returns the targets a panel can be sent to: an ordinary window, or any
   of the attached screens. `spec` is what gets saved."
   []
-  (into [(->ScreenChoice :window "Window (not full screen)" :window)]
+  (into [(->ScreenChoice :window (t :screen/window) :window)]
         (map (fn [{:keys [id width height x y]}]
                (->ScreenChoice id (format "%s  -  %d x %d" id width height)
                                {:id id :width width :height height :x x :y y}))
@@ -129,16 +133,21 @@
         numbers (map parse-long tokens)]
     (cond
       (empty? tokens)
-      {:error "enter at least one player"}
+      {:error (t :players/none)}
 
       (some #(or (nil? %) (not (<= 1 % 6))) numbers)
-      {:error "players must be numbers from 1 to 6"}
+      {:error (t :players/range)}
 
       (not= (count numbers) (count (distinct numbers)))
-      {:error "a player is listed twice"}
+      {:error (t :players/twice)}
 
       :else
       {:players (vec numbers)})))
+
+(def preset-keys
+  "What a preset holds: everything except the language and the presets
+  themselves."
+  [:panels :display :simulate?])
 
 (defn normalize
   "Fills in defaults and drops anything invalid, so the rest of the code
@@ -149,7 +158,30 @@
                      (take max-panels)
                      (mapv #(update (merge default-panel %) :players clean-players)))
      :display   (update display :blocks set)
-     :simulate? (boolean (:simulate? settings))}))
+     :simulate? (boolean (:simulate? settings))
+     :language  (or (:language settings) :auto)
+     :presets   (into {} (map (fn [[preset-name preset]]
+                                [preset-name (select-keys (normalize (dissoc preset :presets)) preset-keys)]))
+                      (:presets settings))}))
+
+(defn save-preset
+  "Stores the current panels, display options and simulation under
+  `preset-name`."
+  [settings preset-name]
+  (assoc-in settings [:presets preset-name] (select-keys settings preset-keys)))
+
+(defn load-preset
+  "Replaces the panels, display options and simulation with those of a
+  preset. Unknown names change nothing."
+  [settings preset-name]
+  (if-let [preset (get-in settings [:presets preset-name])]
+    (normalize (merge settings preset))
+    settings))
+
+(defn delete-preset
+  "Forgets a preset."
+  [settings preset-name]
+  (update settings :presets dissoc preset-name))
 
 (defn panels
   "Turns the settings into the panel descriptions `bardisplay.core/open!`
@@ -159,7 +191,8 @@
   (mapv (fn [{:keys [layout players] :as panel}]
           (merge (select-keys panel [:screen :players :window-bounds])
                  ((:describe (layout-for layout)) (max 1 (count players)))
-                 (select-keys display [:scale :blocks :title-scroll :brightness :always-on-top?])))
+                 (select-keys display [:scale :blocks :title-scroll :brightness :always-on-top?
+                                       :phrase-unit :dim-off-air? :flash-downbeat?])))
         panels))
 
 (defn load-settings
@@ -179,7 +212,7 @@
   "Writes the settings out so the next session starts the same way."
   [settings]
   (try
-    (spit settings-file (pr-str (select-keys settings [:panels :display :simulate?])))
+    (spit settings-file (pr-str (select-keys settings [:panels :display :simulate? :language :presets])))
     (str settings-file)
     (catch Exception e
       (timbre/error e "Could not save" (str settings-file))

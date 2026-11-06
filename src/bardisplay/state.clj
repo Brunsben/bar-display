@@ -20,6 +20,14 @@
 (def ^WaveformFinder waveform-finder (WaveformFinder/getInstance))
 (def ^AnalysisTagFinder analysis-finder (AnalysisTagFinder/getInstance))
 
+(defn live-ready?
+  "Checks whether Beat Link is running, which Beat Link Trigger takes
+  care of when it goes online. Live waveform components may only be
+  pointed at a player then: otherwise they start Beat Link themselves
+  and block the Swing thread while it searches for a network."
+  []
+  (and (.isRunning virtual-cdj) (.isRunning time-finder)))
+
 (defn- online?
   "Checks whether a player is currently announcing itself on the network."
   [n]
@@ -154,6 +162,15 @@
        :looping    (when (and status (.canReportLooping status)) (.isLooping status))
        :loop-beats (when status (.getActiveLoopBeats status))
        :next-cue   (analysis/next-cue (:cues info) played)})))
+
+(defn any-on-air?
+  "Checks whether any player reports being on air. Without a mixer that
+  tells the players, none does."
+  []
+  (if (sim/active?)
+    (sim/any-on-air?)
+    (boolean (some (fn [n] (when-let [^CdjStatus status (latest-status n)] (.isOnAir status)))
+                   (range 1 7)))))
 
 (defn snapshot
   "Collects the current state of a player into a map. Passing player

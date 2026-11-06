@@ -35,7 +35,8 @@
    :title      "Strobe (Original Mix) - a deliberately long title to test truncation"
    :artist     "deadmau5"
    :key        "Am"
-   :phrase     {:label "Chorus" :color (Color. 255 120 180) :text-color Color/BLACK :beats-left 12}
+   :phrase     {:label "Chorus" :color (Color. 255 120 180) :text-color Color/BLACK :beats-left 12
+                :next {:label "Down"}}
    :looping    true
    :loop-beats 4
    :next-cue   {:ms-left 12000 :color (Color. 40 220 40)}})
@@ -47,18 +48,21 @@
   to the cell, `:brightness` dims the result like a panel would. Set
   `:outline?` to trace each visible child's bounds, which makes layout
   problems obvious."
-  [{:keys [width height scale snapshot file outline? blocks title-scroll brightness]
+  [{:keys [width height scale snapshot file outline? blocks title-scroll brightness overlay phrase-unit]
     :or   {width 1920 height 440 scale 4 snapshot sample-snapshot}}]
   (util/load-fonts)
   ;; A closed shutdown channel stops the animation loop before its first tick,
   ;; so it cannot overwrite the snapshot we are rendering.
   (let [stopped       (doto (async/promise-chan) (async/close!))
-        built         (cell/create stopped {:scale scale :blocks blocks :title-scroll title-scroll})
+        built         (cell/create stopped {:scale scale :blocks blocks :title-scroll title-scroll
+                                            :phrase-unit phrase-unit})
         ^JPanel panel (:panel built)
         image         (BufferedImage. width height BufferedImage/TYPE_INT_RGB)
         g             (.createGraphics image)
         alpha         (screen/dim-alpha brightness)]
     (reset! (:snapshot built) snapshot)
+    (when overlay
+      (reset! (:overlay built) overlay))
     (doto panel
       (.setSize width height)
       (.doLayout))
@@ -94,7 +98,10 @@
               :file (f "cell-no-waveforms.png")})
      (render {:width 1920 :height 440 :snapshot {:player 3 :online? false} :file (f "cell-offline.png")})
      (render {:width 1920 :height 440 :brightness 40 :file (f "cell-dimmed.png")})
-     (render {:width 1920 :height 440 :snapshot {:player 0} :file (f "cell-idle.png")})]))
+     (render {:width 1920 :height 440 :snapshot {:player 0} :file (f "cell-idle.png")})
+     (render {:width 1920 :height 440 :overlay {:dim? true} :file (f "cell-off-air.png")})
+     (render {:width 1920 :height 440 :overlay {:flash? true} :phrase-unit :beats
+              :file (f "cell-flash-beats.png")})]))
 
 (defn demo!
   "Starts the simulation and opens the displays in ordinary windows, so
