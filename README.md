@@ -20,12 +20,25 @@ In the settings you configure up to four **panels**. Each panel goes to a screen
 ordinary window for testing, which remembers its position and size) and shows a fixed list of
 players, for example `1 2`. A player that is not on the network keeps its place and is shown
 as offline. If a saved screen is not connected, a screen of the same size, or else the widest
-bar-shaped screen, is used instead.
+bar-shaped screen, is used instead. Plugging a screen in or out later reopens the displays
+within a few seconds. **Identify screens** shows each screen's number and ID on that screen.
 
 The **Display** options apply to all panels: which blocks to show (title, status, tempo, time,
-waveforms, and the info items phrase, key, loop and next cue), brightness, and whether long
-titles scroll through occasionally. When a cell is too narrow for every block at a readable
-size, blocks are left out in this order: tempo, on air/master/sync, time, info.
+beat counter, waveforms, and the info items phrase, key, loop and next cue), brightness,
+whether long titles scroll through occasionally, whether phrases count down in bars or beats,
+dimming decks that are not on air, and a frame flash on every downbeat. When a cell is too
+narrow for every block at a readable size, blocks are left out in this order: tempo,
+on air/master/sync, beat, time, info.
+
+**Presets** store everything except the language, for example one for home and one for the
+club; *Load* fills the form, *Apply* makes it take effect.
+
+## Languages
+
+The interface follows the system language (English and German are included) or the one chosen
+in the settings. To add a language, copy `src/bardisplay/i18n/en.edn` to `<code>.edn` (for
+example `fr.edn`), translate the texts and set `:language/name`; it appears in the settings
+automatically. Missing texts fall back to English.
 
 To update: `git pull`, then restart Beat Link Trigger (or close and reopen the show).
 Beat Link Trigger saves the show window position into `BarDisplay.bls`. If `git pull`
