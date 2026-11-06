@@ -40,8 +40,9 @@
 
 (defn- open-panel
   "Opens one panel whose screen has been resolved. Returns its status
-  entry and the opened panel (or `nil`)."
-  [shutdown-chan index {:keys [panel screen reason]}]
+  entry and the opened panel (or `nil`). `on-bounds`, if given, is called
+  with the panel index and new bounds when a window is moved or resized."
+  [shutdown-chan on-bounds index {:keys [panel screen reason]}]
   (let [entry {:index   index
                :players (:players panel)
                :wanted  (screen-label (:screen panel))
@@ -56,30 +57,36 @@
 
       :else
       (let [screen-id (if (= screen :window) :window (:id screen))
-            opened    (screen/create (assoc panel :screen-id screen-id) shutdown-chan close!)]
+            opened    (screen/create (cond-> (assoc panel :screen-id screen-id)
+                                       on-bounds (assoc :on-bounds (partial on-bounds index)))
+                                     shutdown-chan close!)]
         [(assoc entry :open? (some? opened)) opened]))))
 
 (defn open!
   "Opens the displays described by `panels` (see
   `bardisplay.config/panels`), closing any that were already open.
+  `options` may hold `:on-bounds`, called with a panel index and
+  `[x y width height]` whenever a windowed panel is moved or resized.
   Returns the open displays, or `nil` if no panel could be opened."
-  [panels]
-  (close!)
-  (util/load-fonts)
-  (let [shutdown-chan (async/promise-chan)
-        resolved      (screen/assign-screens panels (screen/describe-screens))
-        results       (vec (map-indexed (partial open-panel shutdown-chan) resolved))
-        opened        (vec (keep second results))]
-    (reset! panel-status (mapv first results))
-    (if (seq opened)
-      (do
-        (reset! displays {:panels opened :shutdown-chan shutdown-chan})
-        (timbre/info "Bar display: opened" (count opened) "panel(s) on" (pr-str (mapv :screen opened)))
-        @displays)
-      (do
-        (async/close! shutdown-chan)
-        (timbre/warn "Bar display: no panel could be opened.")
-        nil))))
+  ([panels]
+   (open! panels {}))
+  ([panels {:keys [on-bounds]}]
+   (close!)
+   (util/load-fonts)
+   (let [shutdown-chan (async/promise-chan)
+         resolved      (screen/assign-screens panels (screen/describe-screens))
+         results       (vec (map-indexed (partial open-panel shutdown-chan on-bounds) resolved))
+         opened        (vec (keep second results))]
+     (reset! panel-status (mapv first results))
+     (if (seq opened)
+       (do
+         (reset! displays {:panels opened :shutdown-chan shutdown-chan})
+         (timbre/info "Bar display: opened" (count opened) "panel(s) on" (pr-str (mapv :screen opened)))
+         @displays)
+       (do
+         (async/close! shutdown-chan)
+         (timbre/warn "Bar display: no panel could be opened.")
+         nil)))))
 
 (defn open?
   "Checks whether the bar displays are currently open."

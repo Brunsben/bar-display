@@ -44,6 +44,18 @@
   (is (= (:panels config/defaults) (:panels (config/normalize {}))))
   (is (= (:panels config/defaults) (:panels (config/normalize nil)))))
 
+(deftest update-window-bounds-test
+  (let [settings {:panels [{:screen :window :window-bounds [0 0 10 10]}
+                           {:screen {:id "X"} :window-bounds [0 0 10 10]}]}]
+    (is (= [5 6 1920 480]
+           (get-in (config/update-window-bounds settings 0 [5 6 1920 480]) [:panels 0 :window-bounds])))
+    (is (= settings (config/update-window-bounds settings 1 [5 6 7 8])) "full screen panels keep theirs")
+    (is (= settings (config/update-window-bounds settings 5 [5 6 7 8])) "unknown panels are ignored")))
+
+(deftest default-window-is-bar-shaped-test
+  (let [[_ _ w h] (:window-bounds config/default-panel)]
+    (is (= [1920 480] [w h]))))
+
 (deftest panels-test
   (let [[a b] (config/panels
                {:panels  [{:screen :window :layout :row :players [1 2] :window-bounds [0 0 10 10]}

@@ -7,8 +7,9 @@
             [taoensso.timbre :as timbre])
   (:import [java.awt Color Cursor Graphics GraphicsDevice GraphicsEnvironment GridLayout Point Rectangle
             Toolkit]
+           [java.awt.event ActionListener ComponentAdapter]
            [java.awt.image BufferedImage]
-           [javax.swing JComponent JFrame JPanel KeyStroke]))
+           [javax.swing JComponent JFrame JPanel KeyStroke Timer]))
 
 (def bar-panel-aspect
   "A screen at least this much wider than it is tall is taken to be a bar
@@ -125,6 +126,19 @@
     (.put (.getActionMap root) "bardisplay-close"
           (seesaw/action :handler (fn [_] (on-escape))))))
 
+(defn- report-bounds!
+  "Calls `on-bounds` with `[x y width height]` half a second after the
+  window was last moved or resized, so dragging does not save each step."
+  [^JFrame frame on-bounds]
+  (let [timer (doto (Timer. 500 (reify ActionListener
+                                  (actionPerformed [_ _]
+                                    (let [b (.getBounds frame)]
+                                      (on-bounds [(.-x b) (.-y b) (.-width b) (.-height b)])))))
+                (.setRepeats false))]
+    (.addComponentListener frame (proxy [ComponentAdapter] []
+                                   (componentMoved [_] (.restart timer))
+                                   (componentResized [_] (.restart timer))))))
+
 (defn create
   "Opens a window covering one bar panel and points its cells at the
   panel's players.
@@ -141,10 +155,13 @@
   * `:always-on-top?` whether full screen panels float above other
     windows
   * `:window-bounds` `[x y width height]` in `:window` mode
+  * `:on-bounds` optional, called with the new `[x y width height]`
+    after a window was moved or resized
 
   Returns a map with the `:frame`, the vector of `:cells` and a
   `:screen` label, or `nil` if the screen could not be found."
-  [{:keys [screen-id rows columns players scale blocks title-scroll brightness always-on-top? window-bounds]}
+  [{:keys [screen-id rows columns players scale blocks title-scroll brightness always-on-top? window-bounds
+           on-bounds]}
    shutdown-chan on-escape]
   (let [rows                   (or rows 1)
         columns                (or columns 1)
@@ -183,6 +200,8 @@
               (.setAlwaysOnTop (boolean always-on-top?)))))
         (bind-escape! frame on-escape)
         (seesaw/show! frame)
+        (when (and windowed? on-bounds)
+          (report-bounds! frame on-bounds))
         (doseq [[c n] (map vector cells (concat players (repeat 0)))]
           ((:set-player! c) n))
         {:frame frame :cells cells :screen label}))))

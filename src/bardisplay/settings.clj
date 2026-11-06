@@ -57,6 +57,13 @@
                  :visible     (visible-players)
                  :panels      (core/status)}))
 
+(defn simulated-players
+  "The players a simulation runs for: those the panels show, limited to
+  1-4 like a typical four deck setup, so players 5 and 6 can be used to
+  see how an offline player looks."
+  [panels]
+  (vec (sort (distinct (filter #(<= 1 % 4) (mapcat :players panels))))))
+
 (defn apply-settings!
   "Brings the displays in line with a settings map, starting or stopping
   the simulation as required. Returns the open displays, or `nil`."
@@ -64,9 +71,9 @@
   (theme/set-thresholds! (:warn-seconds display) (:urgent-seconds display))
   (core/close!)
   (if simulate?
-    (sim/start! {:players (vec (sort (distinct (mapcat :players panels))))})
+    (sim/start! {:players (simulated-players panels)})
     (sim/stop!))
-  (core/open! (config/panels settings)))
+  (core/open! (config/panels settings) {:on-bounds config/save-window-bounds!}))
 
 (defn apply-saved!
   "Opens the displays using the settings last saved from the window."
@@ -140,15 +147,17 @@
     (swap! rows conj row)))
 
 (defn- read-panel
-  "Reads one panel row. Returns `{:panel ...}` or `{:error ...}`."
-  [{:keys [screen layout players window-bounds]}]
+  "Reads one panel row. Returns `{:panel ...}` or `{:error ...}`.
+  `saved-bounds` is where that panel's window was last left, which is
+  newer than what the row was built with if it was moved since."
+  [{:keys [screen layout players window-bounds]} saved-bounds]
   (let [{:keys [error] :as parsed} (config/parse-players (seesaw/text players))]
     (if error
       {:error error}
       {:panel {:screen        (:spec (seesaw/selection screen))
                :layout        (:key (seesaw/selection layout))
                :players       (:players parsed)
-               :window-bounds (or window-bounds (:window-bounds config/default-panel))}})))
+               :window-bounds (or saved-bounds window-bounds (:window-bounds config/default-panel))}})))
 
 (defn- block-id
   "The widget ID of a block's checkbox."
@@ -159,7 +168,8 @@
   "Collects the window into a settings map. Returns `{:settings ...}` or
   `{:errors [...]}`."
   [root rows]
-  (let [results (map read-panel @rows)
+  (let [saved   (mapv :window-bounds (:panels (config/load-settings)))
+        results (map-indexed (fn [i row] (read-panel row (get saved i))) @rows)
         errors  (keep-indexed (fn [i {:keys [error]}] (when error (str "Panel " (inc i) ": " error))) results)
         pick    (fn [id] (seesaw/selection (seesaw/select root [(keyword (str "#" (name id)))])))]
     (if (seq errors)

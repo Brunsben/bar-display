@@ -22,7 +22,7 @@
 (def ^:private load-order
   "The bar display namespaces, each after the ones it depends on."
   '[bardisplay.theme bardisplay.analysis bardisplay.sim bardisplay.state bardisplay.paint
-    bardisplay.cell bardisplay.screen bardisplay.core bardisplay.config bardisplay.status
+    bardisplay.cell bardisplay.screen bardisplay.config bardisplay.core bardisplay.status
     bardisplay.settings bardisplay.blt])
 
 (defonce ^{:private true

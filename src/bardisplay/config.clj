@@ -29,11 +29,13 @@
   4)
 
 (def default-panel
-  "A panel as it starts out: an ordinary window with four players stacked."
+  "A panel as it starts out: an ordinary, bar shaped window with four
+  players stacked. Once moved or resized, the window remembers where it
+  was (see `save-window-bounds!`)."
   {:screen        :window
    :layout        :column
    :players       [1 2 3 4]
-   :window-bounds [80 40 1500 1100]})
+   :window-bounds [80 40 1920 480]})
 
 (def defaults
   "The settings used until the user changes them."
@@ -182,3 +184,19 @@
     (catch Exception e
       (timbre/error e "Could not save" (str settings-file))
       nil)))
+
+(defn update-window-bounds
+  "Records where the window of panel `index` now is, if that panel is an
+  ordinary window."
+  [settings index bounds]
+  (if (= :window (get-in settings [:panels index :screen]))
+    (assoc-in settings [:panels index :window-bounds] (vec bounds))
+    settings))
+
+(defn save-window-bounds!
+  "Remembers a moved or resized window, so it opens there next time."
+  [index bounds]
+  (let [settings (load-settings)
+        updated  (update-window-bounds settings index bounds)]
+    (when (not= settings updated)
+      (save-settings! updated))))
