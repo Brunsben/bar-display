@@ -69,6 +69,7 @@
    :tempo        {:full 230 :compact 178}
    :time         {:full 330 :compact 214}
    :info         {:full 300 :compact 220}
+   :beat         {:full 110 :compact 90}
    ;; The share of the cell width the track title keeps when the header grows to fill a cell.
    :min-track-share 0.35
    ;; How far below the scale its height allows a cell may shrink before header blocks

@@ -47,7 +47,10 @@
                :warn-seconds   60
                :urgent-seconds 30
                :scale          4
-               :always-on-top? false}
+               :always-on-top? false
+               :phrase-unit     :bars
+               :dim-off-air?    true
+               :flash-downbeat? false}
    :simulate? false})
 
 (defrecord Layout [key label describe]
@@ -160,7 +163,8 @@
   (mapv (fn [{:keys [layout players] :as panel}]
           (merge (select-keys panel [:screen :players :window-bounds])
                  ((:describe (layout-for layout)) (max 1 (count players)))
-                 (select-keys display [:scale :blocks :title-scroll :brightness :always-on-top?])))
+                 (select-keys display [:scale :blocks :title-scroll :brightness :always-on-top?
+                                       :phrase-unit :dim-off-air? :flash-downbeat?])))
         panels))
 
 (defn load-settings

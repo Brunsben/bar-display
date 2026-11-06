@@ -155,6 +155,15 @@
        :loop-beats (when status (.getActiveLoopBeats status))
        :next-cue   (analysis/next-cue (:cues info) played)})))
 
+(defn any-on-air?
+  "Checks whether any player reports being on air. Without a mixer that
+  tells the players, none does."
+  []
+  (if (sim/active?)
+    (sim/any-on-air?)
+    (boolean (some (fn [n] (when-let [^CdjStatus status (latest-status n)] (.isOnAir status)))
+                   (range 1 7)))))
+
 (defn snapshot
   "Collects the current state of a player into a map. Passing player
   number 0 yields the idle snapshot."

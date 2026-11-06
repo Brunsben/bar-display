@@ -342,6 +342,23 @@
     (doseq [[item x y w h] (info-slots items (.getWidth c) h (u s 8))]
       (info-item g s (info-content item snap opts) x y w h))))
 
+(defn beat-counter
+  "Paints the beat within the bar as one large digit, the downbeat in red."
+  [{:keys [beat] :as snap} ^JComponent c ^Graphics2D g]
+  (theme/prepare g)
+  (let [w      (.getWidth c)
+        h      (.getHeight c)
+        s      (theme/block-scale h)
+        active (and (live? snap) beat)]
+    (.setPaint g (theme/color :label))
+    (.setFont g (theme/font :teko Font/PLAIN s 18))
+    (draw-left g (t :cell/beat) (u s 2) (u s 20))
+    (.setPaint g (cond (not active) (theme/color :idle)
+                       (= 1 beat)   (theme/color :on-air)
+                       :else        (theme/color :value)))
+    (.setFont g (theme/font :segment Font/PLAIN s 72))
+    (draw-centered g (if active (str beat) "-") (/ w 2.0) (u s 104))))
+
 (defn- pill
   "Draws one status indicator. It is filled when lit and merely outlined
   when not."

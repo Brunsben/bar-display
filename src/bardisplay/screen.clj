@@ -161,7 +161,8 @@
   Returns a map with the `:frame`, the vector of `:cells` and a
   `:screen` label, or `nil` if the screen could not be found."
   [{:keys [screen-id rows columns players scale blocks title-scroll brightness always-on-top? window-bounds
-           on-bounds]}
+           on-bounds]
+    :as   panel}
    shutdown-chan on-escape]
   (let [rows                   (or rows 1)
         columns                (or columns 1)
@@ -172,7 +173,8 @@
         (timbre/warn "Bar display: no screen found matching" (pr-str screen-id) "- skipping panel.")
         nil)
       (let [label         (if windowed? "Window" (.getIDstring device))
-            options       {:scale scale :blocks blocks :title-scroll title-scroll}
+            options       (merge {:scale scale :blocks blocks :title-scroll title-scroll}
+                                 (select-keys panel [:phrase-unit :dim-off-air? :flash-downbeat?]))
             cells         (vec (repeatedly (* rows columns) #(cell/create shutdown-chan options)))
             content       (doto (JPanel. (GridLayout. rows columns 2 2))
                             (.setOpaque true)
