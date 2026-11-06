@@ -23,6 +23,11 @@
   the rate Beat Link Trigger's own Player Status window uses."
   20)
 
+(def all-blocks
+  "Every display block that can be switched on or off. The player badge
+  is always shown and is not listed."
+  #{:track :status :tempo :time :detail :preview :phrase :key :loop :cue})
+
 (def repaint-groups
   "Which snapshot keys each painted component depends on. The animation
   loop only repaints a component when one of its keys has changed."

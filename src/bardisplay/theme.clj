@@ -37,7 +37,8 @@
    :remain-warn   (Color. 255 185 0)
    :remain-urgent (Color. 255 70 70)
    :wave-emphasis (Color. 235 45 45)
-   :wave-tick     Color/WHITE})
+   :wave-tick     Color/WHITE
+   :loop          (Color. 120 220 60)})
 
 (defn color
   "Looks up a palette entry."
@@ -67,6 +68,9 @@
    :status       {:full 150 :compact 104}
    :tempo        {:full 230 :compact 178}
    :time         {:full 330 :compact 214}
+   :info         {:full 300 :compact 220}
+   ;; The narrowest the track title is squeezed to when the header grows to fill a cell.
+   :min-track    200
    ;; Below this many design units of width, a cell switches to compact mode.
    :compact-below 1250})
 
