@@ -54,6 +54,10 @@
       (is (contains? rects :badge))
       (is (contains? rects :track))
       (is (>= (get-in rects [:badge 3]) (* 0.8 natural)))))
+  (testing "a tall cell does not blow the header up and lose blocks over it"
+    (let [rects (cell/layout 740 470 (cell/layout-blocks #{:track :time :loop :cue :detail :preview}))]
+      (is (contains? rects :time))
+      (is (<= (get-in rects [:badge 3]) (:header theme/metrics)))))
   (testing "a wide cell keeps everything"
     (is (= #{:badge :track :info :status :tempo :time :detail :preview}
            (set (keys (cell/layout 1920 440 (cell/layout-blocks cell/all-blocks))))))))

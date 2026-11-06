@@ -70,7 +70,9 @@
   header grows to fill the cell, as far as the width allows."
   [w h blocks]
   (let [metrics       theme/metrics
-        height-s      (theme/scale h)
+        ;; Cells taller than the reference panel give the extra height to the
+        ;; waveforms rather than enlarging the header past its design size.
+        height-s      (min 1.0 (theme/scale h))
         compact?      (< (/ (double w) height-s) (:compact-below metrics))
         design-w      (fn [k] (get-in metrics [k (if compact? :compact :full)]))
         ;; The scale at which the header, with these blocks right of the title, fits
