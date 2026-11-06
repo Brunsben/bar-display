@@ -65,12 +65,23 @@
   header grows to fill the cell, as far as the width allows."
   [w h blocks]
   (let [metrics       theme/metrics
-        s             (theme/scale h)
-        m             (theme/su s (:margin metrics))
-        gap           (theme/su s (:gap metrics))
-        compact?      (< (/ (double w) s) (:compact-below metrics))
+        height-s      (theme/scale h)
+        compact?      (< (/ (double w) height-s) (:compact-below metrics))
         design-w      (fn [k] (get-in metrics [k (if compact? :compact :full)]))
         right         (filterv blocks header-order)
+        ;; Design units the header needs across: margins, gaps, the fixed blocks, and
+        ;; the title's share when it is shown. In a tall, narrow cell scaling by height
+        ;; alone would make the header wider than the cell, so the width can cap it.
+        fixed-du      (+ (* 2 (:margin metrics))
+                         (* (:gap metrics) (inc (count right)))
+                         (design-w :badge)
+                         (reduce + 0 (map design-w right)))
+        needed-du     (if (contains? blocks :track)
+                        (/ fixed-du (- 1.0 (:min-track-share metrics)))
+                        fixed-du)
+        s             (min height-s (/ (double w) needed-du))
+        m             (theme/su s (:margin metrics))
+        gap           (theme/su s (:gap metrics))
         detail?       (contains? blocks :detail)
         preview?      (contains? blocks :preview)
         waves?        (or detail? preview?)

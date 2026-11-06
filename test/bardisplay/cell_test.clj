@@ -6,7 +6,9 @@
   [[ax ay aw ah] [bx by bw bh]]
   (and (< ax (+ bx bw)) (< bx (+ ax aw)) (< ay (+ by bh)) (< by (+ ay ah))))
 
-(def sizes [[1920 440] [960 440] [1500 275] [800 300]])
+(def sizes
+  ;; The last ones are tall, narrow cells, as in side by side windows that are higher than wide.
+  [[1920 440] [960 440] [1500 275] [800 300] [500 1100] [320 600] [640 480]])
 
 (def block-sets
   [cell/all-blocks
