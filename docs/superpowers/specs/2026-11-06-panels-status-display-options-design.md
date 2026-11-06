@@ -64,8 +64,8 @@ Einstellungen pro Panel für Anzeige-Optionen.
 
 ### Bildschirmauflösung (`screen/resolve-screen`)
 
-Reine Funktion: gespeicherte Bildschirmangabe + Liste vorhandener Bildschirme (`describe-screens`)
-+ bereits von anderen Panels belegte Bildschirme → `{:device-id … :reason …}`.
+Reine Funktion: gespeicherte Bildschirmangabe + Liste vorhandener Bildschirme (`describe-screens`) und
+die bereits von anderen Panels belegte Bildschirme → `{:device-id … :reason …}`.
 
 Reihenfolge:
 
@@ -91,7 +91,7 @@ Panels werden in Listenreihenfolge aufgelöst, damit zwei Panels nie denselben B
 Das Show-Fenster (`bardisplay.blt`) zeigt über den Buttons einen Statusbereich, der sich
 jede Sekunde aus diesen Einträgen und dem Online-Zustand der Player neu aufbaut:
 
-```
+```text
 BLT: Online (4 Player)
 Panel 1  Display 2   läuft    Player 1 ●  2 ●
 Panel 2  Display 3 → Ersatz Display 4   läuft    Player 3 ●  4 ○ offline
