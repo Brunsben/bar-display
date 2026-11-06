@@ -8,7 +8,8 @@
   WaveformFinder that a live cell reads. So we keep our own clock here,
   and `bardisplay.cell` switches its waveform components into data mode
   while a simulation is running."
-  (:require [beat-link-trigger.util :as util]
+  (:require [bardisplay.analysis :as analysis]
+            [beat-link-trigger.util :as util]
             [clojure.core.async :as async]
             [taoensso.timbre :as timbre])
   (:import [org.deepsymmetry.beatlink.data BeatGrid]))
@@ -18,7 +19,8 @@
   20)
 
 (def sample-tracks
-  "The sample tracks Beat Link Trigger ships for offline work."
+  "The sample tracks Beat Link Trigger ships for offline work. Track 2
+  has phrase analysis, track 1 does not, so both cases are shown."
   [1 2])
 
 (defonce ^{:private true
@@ -37,17 +39,21 @@
 
 (defn- make-player
   "Builds the initial state of one simulated player. The players are
-  given different pitches and roles so the display has something varied
-  to show."
+  given different pitches, roles and loop states so the display has
+  something varied to show."
   [number track index]
   {:player  number
    :track   track
+   :phrases (analysis/phrases (:song-structure track))
+   :cues    (analysis/cues (:cue-list track))
    :time    (* index 37000)
    :playing (even? index)
    :pitch   (nth [0.0 1.4 -2.2 0.8] (mod index 4))
    :on-air  (even? index)
    :master  (zero? index)
-   :synced  (pos? index)})
+   :synced  (pos? index)
+   ;; false: can report loops but is not looping; true: looping; nil: cannot report.
+   :looping (nth [false true nil] (mod index 3))})
 
 (defn- advance
   "Moves one player's playback position forward, wrapping at the end of
@@ -109,35 +115,42 @@
   [number]
   (get-in @simulation [:players number :track]))
 
-(defn- beat-within-bar
-  "Works out the beat of the bar at a position in a simulated track."
+(defn- beat-number
+  "Works out the beat number at a position in a simulated track."
   [track time]
   (when-let [^BeatGrid grid (:grid track)]
-    (let [beat (.findBeatAtTime grid time)]
+    (let [beat (.findBeatAtTime grid (long time))]
       (when (pos? beat)
-        (.getBeatWithinBar grid beat)))))
+        beat))))
 
 (defn snapshot
   "Returns the state of a simulated player in the same shape as
   `bardisplay.state/snapshot`, or `nil` if that player is not being
   simulated."
   [number]
-  (when-let [{:keys [track time playing pitch on-air master synced]}
+  (when-let [{:keys [track time playing pitch on-air master synced looping phrases cues]}
              (get-in @simulation [:players number])]
     (let [metadata (:metadata track)
-          played   (long time)]
-      {:player   number
-       :playing  playing
-       :on-air   on-air
-       :master   master
-       :synced   synced
-       :bpm-only false
-       :beat     (beat-within-bar track played)
-       :pitch    pitch
-       :tempo    (when-let [tempo (:starting-tempo metadata)]
-                   (* tempo (+ 1.0 (/ pitch 100.0))))
-       :played   played
-       :remain   (max 0 (- (duration-ms track) played))
-       :precise  true
-       :title    (:title metadata)
-       :artist   (:artist metadata)})))
+          played   (long time)
+          beat     (beat-number track played)]
+      {:player     number
+       :online?    true
+       :playing    playing
+       :on-air     on-air
+       :master     master
+       :synced     synced
+       :bpm-only   false
+       :beat       (when beat (.getBeatWithinBar ^BeatGrid (:grid track) (int beat)))
+       :pitch      pitch
+       :tempo      (when-let [tempo (:starting-tempo metadata)]
+                     (* tempo (+ 1.0 (/ pitch 100.0))))
+       :played     played
+       :remain     (max 0 (- (duration-ms track) played))
+       :precise    true
+       :title      (:title metadata)
+       :artist     (:artist metadata)
+       :key        (:key metadata)
+       :phrase     (analysis/phrase-at phrases beat)
+       :looping    looping
+       :loop-beats (when looping 4)
+       :next-cue   (analysis/next-cue cues played)})))

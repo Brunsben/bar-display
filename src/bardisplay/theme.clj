@@ -37,7 +37,8 @@
    :remain-warn   (Color. 255 185 0)
    :remain-urgent (Color. 255 70 70)
    :wave-emphasis (Color. 235 45 45)
-   :wave-tick     Color/WHITE})
+   :wave-tick     Color/WHITE
+   :loop          (Color. 120 220 60)})
 
 (defn color
   "Looks up a palette entry."
@@ -67,6 +68,12 @@
    :status       {:full 150 :compact 104}
    :tempo        {:full 230 :compact 178}
    :time         {:full 330 :compact 214}
+   :info         {:full 300 :compact 220}
+   ;; The share of the cell width the track title keeps when the header grows to fill a cell.
+   :min-track-share 0.35
+   ;; How far below the scale its height allows a cell may shrink before header blocks
+   ;; are left out instead.
+   :min-scale-share 0.8
    ;; Below this many design units of width, a cell switches to compact mode.
    :compact-below 1250})
 
