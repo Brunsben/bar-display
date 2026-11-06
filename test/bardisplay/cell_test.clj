@@ -1,0 +1,48 @@
+(ns bardisplay.cell-test
+  (:require [bardisplay.cell :as cell]
+            [clojure.test :refer [deftest is testing]]))
+
+(defn- overlap?
+  [[ax ay aw ah] [bx by bw bh]]
+  (and (< ax (+ bx bw)) (< bx (+ ax aw)) (< ay (+ by bh)) (< by (+ ay ah))))
+
+(def sizes [[1920 440] [960 440] [1500 275] [800 300]])
+
+(def block-sets
+  [cell/all-blocks
+   #{:track :time :detail}
+   #{:track :status :tempo :time :phrase :key :loop :cue}
+   #{}
+   #{:detail}
+   #{:preview}])
+
+(deftest layout-fits-test
+  (doseq [[w h] sizes
+          blocks block-sets]
+    (let [rects (cell/layout w h (cell/layout-blocks blocks))]
+      (testing (str w "x" h " " (sort blocks))
+        (is (contains? rects :badge))
+        (doseq [[k [x y rw rh]] rects]
+          (is (and (>= x 0) (>= y 0) (>= rw 0) (>= rh 0)) (str k " has negative geometry"))
+          (is (<= (+ x rw) w) (str k " sticks out on the right"))
+          (is (<= (+ y rh) h) (str k " sticks out at the bottom")))
+        (doseq [[ka a] rects
+                [kb b] rects
+                :when (neg? (compare ka kb))]
+          (is (not (overlap? a b)) (str ka " overlaps " kb)))))))
+
+(deftest layout-blocks-test
+  (is (contains? (cell/layout-blocks #{:key}) :info))
+  (is (not (contains? (cell/layout-blocks #{:track}) :info))))
+
+(deftest hidden-blocks-test
+  (is (= #{:badge :track :time} (set (keys (cell/layout 1920 440 (cell/layout-blocks #{:track :time})))))))
+
+(deftest header-grows-without-waveforms-test
+  (let [with    (cell/layout 1920 440 (cell/layout-blocks cell/all-blocks))
+        without (cell/layout 1920 440 (cell/layout-blocks #{:track :time}))]
+    (is (> (get-in without [:badge 3]) (get-in with [:badge 3])))))
+
+(deftest single-waveform-takes-the-space-test
+  (is (> (get-in (cell/layout 1920 440 #{:preview}) [:preview 3]) 200))
+  (is (> (get-in (cell/layout 1920 440 #{:detail}) [:detail 3]) 200)))

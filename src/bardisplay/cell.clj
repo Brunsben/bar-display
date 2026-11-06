@@ -3,10 +3,9 @@
   indicators above a scrolling waveform detail view and a waveform
   preview acting as the progress bar.
 
-  A cell is retargetable. Rather than rebuilding the UI when the set of
-  online players changes, `set-player!` points the existing cell (and
-  its waveform components) at a different player number, which avoids
-  flicker and keeps the expensive components alive."
+  A cell is pointed at one player with `set-player!` and keeps showing
+  that player, online or not. Which blocks appear is chosen when the
+  cell is created; `layout` works out where they go."
   (:require [bardisplay.paint :as paint]
             [bardisplay.sim :as sim]
             [bardisplay.state :as state]
@@ -28,14 +27,90 @@
   is always shown and is not listed."
   #{:track :status :tempo :time :detail :preview :phrase :key :loop :cue})
 
+(def info-items
+  "The optional entries of the info block, in display order."
+  [:phrase :key :loop :cue])
+
+(def header-order
+  "The header blocks to the right of the track title, left to right."
+  [:info :status :tempo :time])
+
 (def repaint-groups
   "Which snapshot keys each painted component depends on. The animation
   loop only repaints a component when one of its keys has changed."
-  {:badge  [:player :playing :beat]
-   :track  [:player :title :artist]
-   :status [:player :on-air :master :synced :bpm-only]
-   :tempo  [:player :pitch :tempo :master]
-   :time   [:player :played :remain :precise]})
+  {:badge  [:player :online? :playing :beat]
+   :track  [:player :online? :title :artist]
+   :info   [:player :online? :phrase :key :looping :loop-beats :next-cue]
+   :status [:player :online? :on-air :master :synced :bpm-only]
+   :tempo  [:player :online? :pitch :tempo :master]
+   :time   [:player :online? :played :remain :precise]})
+
+(defn layout-blocks
+  "Turns the chosen display blocks into the set `layout` works with,
+  adding `:info` when any info entry is switched on."
+  [blocks]
+  (let [blocks (set blocks)]
+    (cond-> blocks
+      (some blocks info-items) (conj :info))))
+
+(defn layout
+  "Works out where each visible block of a `w` by `h` cell goes. `blocks`
+  is the result of `layout-blocks`. Returns a map from block key to
+  `[x y width height]`; blocks not shown are absent. The badge is always
+  present.
+
+  Everything is derived from the cell's height, so the layout is the
+  same on panels of any resolution. Header blocks keep their widths
+  relative to the header height; when both waveforms are hidden the
+  header grows to fill the cell, as far as the width allows."
+  [w h blocks]
+  (let [metrics       theme/metrics
+        s             (theme/scale h)
+        m             (theme/su s (:margin metrics))
+        gap           (theme/su s (:gap metrics))
+        compact?      (< (/ (double w) s) (:compact-below metrics))
+        design-w      (fn [k] (get-in metrics [k (if compact? :compact :full)]))
+        right         (filterv blocks header-order)
+        detail?       (contains? blocks :detail)
+        preview?      (contains? blocks :preview)
+        waves?        (or detail? preview?)
+        natural       (theme/su s (:header metrics))
+        avail-h       (- h (* 2 m))
+        header-h      (if waves?
+                        natural
+                        (let [fixed-du (+ (design-w :badge) (reduce + 0 (map design-w right)))
+                              gaps     (* gap (inc (count right)))
+                              room     (- w (* 2 m) gaps (theme/su s (:min-track metrics)))
+                              widest   (long (/ (* room (:header metrics)) fixed-du))]
+                          (max natural (min avail-h widest))))
+        hs            (/ (double header-h) (:header metrics))
+        block-w       (fn [k] (theme/su hs (design-w k)))
+        top           (if waves? m (+ m (quot (- avail-h header-h) 2)))
+        [placed edge] (reduce (fn [[acc x] k]
+                                (let [bw (block-w k)
+                                      bx (- x bw)]
+                                  [(assoc acc k [bx top bw header-h]) (- bx gap)]))
+                              [{} (- w m)]
+                              (reverse right))
+        badge-w       (block-w :badge)
+        track-x       (+ m badge-w gap)
+        track-w       (max 0 (- edge track-x))
+        inner-w       (- w (* 2 m))
+        wave-y        (+ m header-h gap)
+        wave-h        (max 0 (- h wave-y m))
+        preview-h     (theme/su s (:preview metrics))
+        waves         (cond
+                        (and detail? preview?)
+                        (let [detail-h (max 0 (- wave-h preview-h gap))]
+                          {:detail  [m wave-y inner-w detail-h]
+                           :preview [m (+ wave-y detail-h gap) inner-w (min preview-h wave-h)]})
+                        detail?  {:detail [m wave-y inner-w wave-h]}
+                        preview? {:preview [m wave-y inner-w wave-h]}
+                        :else    {})]
+    (merge {:badge [m top badge-w header-h]}
+           (when (contains? blocks :track) {:track [track-x top track-w header-h]})
+           placed
+           waves)))
 
 (defn- style-waveform!
   "Applies our color scheme to a waveform component."
@@ -106,45 +181,21 @@
                                         (int n) (long played) (boolean playing)))))
      :release! (fn [])}))
 
-(defn- block-width
-  "Looks up a header block width in design units, honoring compact mode."
-  [k compact?]
-  (get-in theme/metrics [k (if compact? :compact :full)]))
-
 (defn- lay-out!
-  "Positions the children of a cell. Everything is derived from the
-  cell's own height, so the layout is identical on panels of any
-  resolution."
-  [^JPanel panel {:keys [badge track status tempo time detail preview]}]
-  (let [w         (.getWidth panel)
-        h         (.getHeight panel)
-        s         (theme/scale h)
-        m         (theme/su s (:margin theme/metrics))
-        gap       (theme/su s (:gap theme/metrics))
-        compact?  (< (/ (double w) s) (:compact-below theme/metrics))
-        header-h  (theme/su s (:header theme/metrics))
-        preview-h (theme/su s (:preview theme/metrics))
-        badge-w   (theme/su s (block-width :badge compact?))
-        status-w  (theme/su s (block-width :status compact?))
-        tempo-w   (theme/su s (block-width :tempo compact?))
-        time-w    (theme/su s (block-width :time compact?))
-        time-x    (- w m time-w)
-        tempo-x   (- time-x gap tempo-w)
-        status-x  (- tempo-x gap status-w)
-        track-x   (+ m badge-w gap)
-        track-w   (max 0 (- status-x gap track-x))
-        detail-y  (+ m header-h gap)
-        detail-h  (max 0 (- h detail-y gap preview-h m))]
-    (.setBounds ^JComponent badge m m badge-w header-h)
-    (.setBounds ^JComponent track track-x m track-w header-h)
-    (.setBounds ^JComponent status status-x m status-w header-h)
-    (.setBounds ^JComponent tempo tempo-x m tempo-w header-h)
-    (.setBounds ^JComponent time time-x m time-w header-h)
-    (.setBounds ^JComponent detail m detail-y (- w (* 2 m)) detail-h)
-    (.setBounds ^JComponent preview m (+ detail-y detail-h gap) (- w (* 2 m)) preview-h)))
+  "Positions the children of a cell according to `layout`, hiding the
+  blocks that are switched off."
+  [^JPanel panel children blocks]
+  (let [rects (layout (.getWidth panel) (.getHeight panel) blocks)]
+    (doseq [[k ^JComponent child] children]
+      (if-let [[x y w h] (get rects k)]
+        (doto child
+          (.setVisible true)
+          (.setBounds (int x) (int y) (int w) (int h)))
+        (.setVisible child false)))))
 
 (defn- canvas
-  "Creates one of the painted header components."
+  "Creates one of the painted header components. `paint-fn` receives the
+  current snapshot, the component and the graphics context."
   [paint-fn snapshot]
   (seesaw/canvas :background (theme/color :background)
                  :opaque? true
@@ -153,32 +204,42 @@
 (defn create
   "Builds a cell. `shutdown-chan` is closed when the display is torn
   down, which stops the animation loop and releases the waveform
-  components. `scale` is the waveform detail zoom level (larger values
-  show more of the track).
+  components. `options` holds `:scale` (waveform detail zoom; larger
+  values show more of the track), `:blocks` (which blocks to show, see
+  `all-blocks`) and `:title-scroll` (`:off` or `:occasional`).
 
-  Returns a map containing the Swing `:panel` and a `:set-player!`
-  function."
-  [shutdown-chan scale]
-  (let [;; The player number is owned by `set-player!`; the snapshot is owned by the
+  Returns a map containing the Swing `:panel`, the `:snapshot` atom and
+  a `:set-player!` function."
+  [shutdown-chan {:keys [scale blocks title-scroll]}]
+  (let [scale    (or scale 4)
+        chosen   (set (or blocks all-blocks))
+        items    (filterv chosen info-items)
+        blocks   (layout-blocks chosen)
+        scroll?  (= title-scroll :occasional)
+        ;; The player number is owned by `set-player!`; the snapshot is owned by the
         ;; animation loop. Keeping them apart stops a tick in flight from reverting
         ;; a reassignment that happened while it was gathering state.
         player   (atom 0)
         snapshot (atom state/empty-snapshot)
-        badge    (canvas paint/badge snapshot)
-        track    (canvas paint/track snapshot)
-        status   (canvas paint/status snapshot)
-        tempo    (canvas paint/tempo snapshot)
-        time     (canvas paint/time-display snapshot)
+        moving   (atom false)
         detail   (holder)
         preview  (holder)
+        children {:badge   (canvas paint/badge snapshot)
+                  :track   (canvas (fn [snap c g]
+                                     (paint/track snap {:scroll? scroll? :now (System/currentTimeMillis)} c g))
+                                   snapshot)
+                  :info    (canvas (fn [snap c g] (paint/info snap items c g)) snapshot)
+                  :status  (canvas paint/status snapshot)
+                  :tempo   (canvas paint/tempo snapshot)
+                  :time    (canvas paint/time-display snapshot)
+                  :detail  detail
+                  :preview preview}
         waves    (if (sim/active?)
                    (simulated-waveforms detail preview scale)
                    (live-waveforms detail preview scale))
-        children {:badge badge :track track :status status :tempo tempo
-                  :time time :detail detail :preview preview}
         panel    (proxy [JPanel] []
                    (doLayout []
-                     (lay-out! ^JPanel this children)))]
+                     (lay-out! ^JPanel this children blocks)))]
     (doto panel
       (.setLayout nil)
       (.setOpaque true)
@@ -193,18 +254,24 @@
         (if (= channel timeout)
           (do
             (try
-              (let [current  (state/snapshot @player)
-                    previous (deref snapshot)
-                    stale    (keep (fn [[component ks]]
-                                     (when (some #(not= (get previous %) (get current %)) ks)
-                                       component))
-                                   repaint-groups)]
-                (when (seq stale)
+              (let [current   (state/snapshot @player)
+                    previous  (deref snapshot)
+                    changed   (vec (keep (fn [[component ks]]
+                                           (when (some #(not= (get previous %) (get current %)) ks)
+                                             component))
+                                         repaint-groups))
+                    scrolling (and scroll?
+                                   (paint/scrolling? (paint/scroll-time (System/currentTimeMillis)
+                                                                        (:player current))))
+                    ;; Keep repainting the title while it scrolls, and once more when it stops.
+                    stale     (cond-> changed (or scrolling @moving) (conj :track))]
+                (reset! moving scrolling)
+                (when (seq changed)
                   (reset! snapshot current))
                 (seesaw/invoke-later
                   ((:advance! waves) (:player current) (:played current) (:playing current))
                   (when (seq stale)
-                    (seesaw/repaint! (mapv children stale)))))
+                    (seesaw/repaint! (mapv children (distinct stale))))))
               (catch Throwable t
                 (timbre/error t "Problem updating bar display cell.")))
             (recur))
