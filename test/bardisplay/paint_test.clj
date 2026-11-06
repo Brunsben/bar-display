@@ -1,7 +1,7 @@
 (ns bardisplay.paint-test
   (:require [bardisplay.paint :as paint]
             [bardisplay.theme :as theme]
-            [clojure.test :refer [deftest is]])
+            [clojure.test :refer [deftest is testing]])
   (:import [java.awt Color]))
 
 (deftest live-test
@@ -33,14 +33,39 @@
   (is (= "0:00" (paint/format-countdown 0)))
   (is (= "0:00" (paint/format-countdown -5))))
 
+(deftest phrase-count-test
+  (is (= [3 :cell/bars] (paint/phrase-count 12 :bars)))
+  (is (= [3 :cell/bars] (paint/phrase-count 9 :bars)) "bars are rounded up")
+  (is (= [1 :cell/bar] (paint/phrase-count 4 :bars)))
+  (is (= [12 :cell/beats] (paint/phrase-count 12 :beats)))
+  (is (= [1 :cell/beat-unit] (paint/phrase-count 1 :beats))))
+
+(deftest phrase-content-test
+  (let [phrase {:label "Chorus" :color Color/RED :text-color Color/BLACK :beats-left 12 :next {:label "Down"}}
+        snap   {:player 1 :phrase phrase}]
+    (is (= {:text "CHORUS → DOWN · 3 bars" :fill Color/RED :text-color Color/BLACK}
+           (paint/info-content :phrase snap {:phrase-unit :bars})))
+    (is (= "CHORUS → DOWN · 12 beats"
+           (:text (paint/info-content :phrase snap {:phrase-unit :beats}))))
+    (is (= "CHORUS → END · 3 bars"
+           (:text (paint/info-content :phrase (assoc-in snap [:phrase :next] nil) {}))))))
+
+(deftest info-slots-test
+  (testing "without phrase, a two by two grid"
+    (is (= [[:key 0 0 146 52] [:loop 154 0 146 52] [:cue 0 60 146 52]]
+           (paint/info-slots [:key :loop :cue] 300 112 8))))
+  (testing "phrase takes the whole top row"
+    (is (= [[:phrase 0 0 300 52] [:key 0 60 146 52] [:cue 154 60 146 52]]
+           (paint/info-slots [:phrase :key :cue] 300 112 8)))
+    (is (= [[:phrase 0 0 300 52] [:key 0 60 94 52] [:loop 102 60 94 52] [:cue 204 60 94 52]]
+           (paint/info-slots [:phrase :key :loop :cue] 300 112 8)))
+    (is (= [[:phrase 0 0 300 52]] (paint/info-slots [:phrase] 300 112 8)))))
+
 (deftest info-content-test
   (let [snap {:player   1 :online? true
-              :phrase   {:label "Chorus" :color Color/RED :text-color Color/BLACK :beats-left 12}
               :key      "Am"
               :looping  true :loop-beats 4
               :next-cue {:ms-left 12000 :color Color/GREEN}}]
-    (is (= {:text "CHORUS · 12" :fill Color/RED :text-color Color/BLACK}
-           (paint/info-content :phrase snap)))
     (is (= {:text "KEY Am" :text-color (theme/color :value)} (paint/info-content :key snap)))
     (is (= {:text "LOOP 4" :fill (theme/color :loop) :text-color Color/BLACK}
            (paint/info-content :loop snap)))

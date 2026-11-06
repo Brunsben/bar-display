@@ -8,10 +8,14 @@
    :entries  [{:beat 1 :label "Intro"} {:beat 33 :label "Chorus"} {:beat 65 :label "Outro"}]})
 
 (deftest phrase-at-test
-  (is (= {:beat 1 :label "Intro" :beats-left 32} (analysis/phrase-at sample-phrases 1)))
-  (is (= {:beat 1 :label "Intro" :beats-left 1} (analysis/phrase-at sample-phrases 32)))
-  (is (= {:beat 33 :label "Chorus" :beats-left 32} (analysis/phrase-at sample-phrases 33)))
-  (is (= {:beat 65 :label "Outro" :beats-left 1} (analysis/phrase-at sample-phrases 99)))
+  (is (= {:beat 1 :label "Intro" :beats-left 32 :next {:beat 33 :label "Chorus"}}
+         (analysis/phrase-at sample-phrases 1)))
+  (is (= {:beat 1 :label "Intro" :beats-left 1 :next {:beat 33 :label "Chorus"}}
+         (analysis/phrase-at sample-phrases 32)))
+  (is (= {:beat 33 :label "Chorus" :beats-left 32 :next {:beat 65 :label "Outro"}}
+         (analysis/phrase-at sample-phrases 33)))
+  (is (= {:beat 65 :label "Outro" :beats-left 1 :next nil} (analysis/phrase-at sample-phrases 99))
+      "the last phrase has nothing after it")
   (is (nil? (analysis/phrase-at sample-phrases 100)))
   (is (nil? (analysis/phrase-at sample-phrases 0)))
   (is (nil? (analysis/phrase-at sample-phrases nil)))

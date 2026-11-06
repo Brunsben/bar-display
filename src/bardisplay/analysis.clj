@@ -26,15 +26,17 @@
 
 (defn phrase-at
   "Finds the phrase playing at `beat`, adding `:beats-left` until the
-  next phrase (or the end of the analysis). Returns `nil` outside the
-  analysed range or when anything is missing."
+  next phrase (or the end of the analysis) and `:next`, the phrase that
+  follows (`nil` in the last one). Returns `nil` outside the analysed
+  range or when anything is missing."
   [{:keys [entries end-beat]} beat]
   (when (and beat (seq entries) end-beat
              (>= beat (:beat (first entries)))
              (< beat end-beat))
     (let [[before after] (split-with #(<= (:beat %) beat) entries)
-          next-beat      (if-let [following (first after)] (:beat following) end-beat)]
-      (assoc (last before) :beats-left (- next-beat beat)))))
+          following      (first after)
+          next-beat      (if following (:beat following) end-beat)]
+      (assoc (last before) :beats-left (- next-beat beat) :next following))))
 
 (defn cues
   "Converts a cue list into `[{:ms :color} ...]` sorted by time, covering
